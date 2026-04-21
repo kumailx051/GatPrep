@@ -6,7 +6,7 @@ function Result() {
   const navigate = useNavigate()
   const [showReview, setShowReview] = useState(false)
 
-  const { questions, answers, correct, incorrect, skipped, total, category, timeSpent } = location.state || {}
+  const { questions, answers, correct, incorrect, skipped, total, category, timeSpent, isCustomTest, testId } = location.state || {}
 
   if (!location.state) {
     return (
@@ -86,7 +86,10 @@ function Result() {
       </div>
 
       <div className="result-actions">
-        <button className="action-btn primary" onClick={() => navigate(`/test/${category}/test-1`)}>
+        <button
+          className="action-btn primary"
+          onClick={() => navigate(isCustomTest ? `/test/custom/${testId}` : `/test/${category}/test-1`)}
+        >
           Retry Test
         </button>
         <button className="action-btn secondary" onClick={() => navigate('/test')}>

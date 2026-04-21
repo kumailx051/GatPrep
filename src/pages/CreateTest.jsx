@@ -1,107 +1,318 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { getUserCustomTestsByCategory, saveUserCustomTest } from '../services/userData'
 
 function CreateTest() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('paste')
+  const { user } = useAuth()
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isNumbering, setIsNumbering] = useState(false)
+  const [isAnswerNumbering, setIsAnswerNumbering] = useState(false)
+  const [isAutoNaming, setIsAutoNaming] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
   // Paste MCQs state
   const [mcqText, setMcqText] = useState('')
   const [answerKey, setAnswerKey] = useState('')
-  const [sectionType, setSectionType] = useState('auto')
-  
-  // Video state
-  const [videoUrl, setVideoUrl] = useState('')
-  
-  // PDF state
-  const [pdfText, setPdfText] = useState('')
+  const [sectionType, setSectionType] = useState('english')
   
   // Test name
   const [testName, setTestName] = useState('')
+  const [autoTestName, setAutoTestName] = useState('')
+  const lastFormattedValueRef = useRef('')
+  const lastFormattedAnswerValueRef = useRef('')
+  const testNameOverrideRef = useRef(false)
 
-  const tabs = [
-    { id: 'paste', label: 'Paste MCQs', icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" />
-        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
-      </svg>
-    )},
-    { id: 'video', label: 'Video to MCQs', icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polygon points="23 7 16 12 23 17 23 7" />
-        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-      </svg>
-    )},
-    { id: 'pdf', label: 'PDF to MCQs', icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
-      </svg>
-    )}
-  ]
+  const parseAnswerEntries = (text) => {
+    const cleaned = text.replace(/\r/g, '').trim()
+    if (!cleaned) return []
 
-  const parseMCQs = (text, answers) => {
-    const questions = []
-    const lines = text.trim().split('\n').filter(line => line.trim())
-    
-    // Parse answer key
-    const answerMap = {}
-    const answerLines = answers.trim().split('\n').filter(line => line.trim())
-    answerLines.forEach(line => {
-      const match = line.match(/(\d+)[\s\-\.:]+([A-Da-d])/i)
-      if (match) {
-        answerMap[parseInt(match[1])] = match[2].toUpperCase()
+    const chunks = cleaned
+      .split('\n')
+      .flatMap((line) => line.split(','))
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+
+    const entries = []
+    chunks.forEach((entry) => {
+      const numberedMatch = entry.match(/^(\d+)\s*[-.):]?\s*([A-Da-d])$/)
+      if (numberedMatch) {
+        entries.push({ number: parseInt(numberedMatch[1], 10), letter: numberedMatch[2].toUpperCase() })
+        return
+      }
+
+      const letterOnlyMatch = entry.match(/^([A-Da-d])$/)
+      if (letterOnlyMatch) {
+        entries.push({ number: null, letter: letterOnlyMatch[1].toUpperCase() })
       }
     })
 
+    return entries
+  }
+
+  const formatAnswerKeyWithNumbers = (text) => {
+    const entries = parseAnswerEntries(text)
+    if (!entries.length) return text
+
+    const usedNumbers = new Set(entries.filter((entry) => entry.number !== null).map((entry) => entry.number))
+    let nextNumber = usedNumbers.size ? Math.max(...usedNumbers) + 1 : 1
+
+    const normalized = entries.map((entry, index) => {
+      if (entry.number !== null) {
+        return `${entry.number}-${entry.letter}`
+      }
+
+      while (usedNumbers.has(nextNumber)) {
+        nextNumber += 1
+      }
+      const assignedNumber = nextNumber
+      usedNumbers.add(assignedNumber)
+      nextNumber += 1
+      return `${assignedNumber}-${entry.letter}`
+    })
+
+    // If there were no explicit numbers at all, force strict 1..N mapping.
+    const hasExplicitNumbers = entries.some((entry) => entry.number !== null)
+    if (!hasExplicitNumbers) {
+      return entries.map((entry, index) => `${index + 1}-${entry.letter}`).join('\n')
+    }
+
+    return normalized.join('\n')
+  }
+
+  const shouldFormatAnswerKeyText = (text) => {
+    const entries = parseAnswerEntries(text)
+    if (!entries.length) return false
+    // If every entry already has an explicit number, keep it as-is.
+    return !entries.every((entry) => entry.number !== null)
+  }
+
+  const shouldFormatMcqText = (text) => {
+    const rawText = text.trim()
+    if (!rawText) return false
+
+    // If already numbered, skip formatting to avoid repeated heavy processing.
+    if (/^\s*\d+[\.)]\s+/m.test(rawText)) {
+      return false
+    }
+
+    // Only format when the text looks like at least one MCQ block.
+    const optionCount = (rawText.match(/^\s*[A-Da-d][\)\.\s]+.+$/gm) || []).length
+    return optionCount >= 4
+  }
+
+  const formatMcqTextWithNumbers = (text) => {
+    const rawText = text.trim()
+    if (!rawText) return text
+
+    const optionPattern = /^([A-Da-d])[\)\.\s]+(.+)/
+    const blocks = rawText
+      .split(/\n\s*\n+/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+
+    if (!blocks.length) return text
+
+    const formattedBlocks = blocks.map((block, index) => {
+      const lines = block.split('\n').map((line) => line.trim()).filter(Boolean)
+      const optionStartIndex = lines.findIndex((line) => optionPattern.test(line))
+
+      if (optionStartIndex <= 0) {
+        return block
+      }
+
+      const optionLines = lines.slice(optionStartIndex).filter((line) => optionPattern.test(line))
+      if (optionLines.length !== 4) {
+        return block
+      }
+
+      const questionTextRaw = lines.slice(0, optionStartIndex).join(' ').trim()
+      const numberedQuestionMatch = questionTextRaw.match(/^(\d+)[\.\)\s]+(.+)/)
+      const questionText = numberedQuestionMatch ? numberedQuestionMatch[2].trim() : questionTextRaw
+
+      const normalizedOptions = optionLines.map((line) => {
+        const match = line.match(optionPattern)
+        const letter = match[1].toUpperCase()
+        const optionText = match[2].trim()
+        return `${letter}) ${optionText}`
+      })
+
+      return `${index + 1}. ${questionText}\n${normalizedOptions.join('\n')}`
+    })
+
+    return formattedBlocks.join('\n\n')
+  }
+
+  const getSectionDisplayName = (section) => {
+    const normalized = (section || '').toLowerCase().trim()
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+  }
+
+  const getNextTestNameForSection = async (section) => {
+    if (!user) {
+      return `${getSectionDisplayName(section)} Test 1`
+    }
+
+    const tests = await getUserCustomTestsByCategory(user.uid, section)
+    const prefix = `${getSectionDisplayName(section)} Test `
+    const numbers = tests
+      .map((test) => {
+        const match = (test.name || '').match(new RegExp(`^${getSectionDisplayName(section)} Test\\s+(\\d+)$`, 'i'))
+        return match ? parseInt(match[1], 10) : null
+      })
+      .filter((value) => Number.isInteger(value))
+
+    const nextNumber = numbers.length ? Math.max(...numbers) + 1 : 1
+    return `${prefix}${nextNumber}`
+  }
+
+  const syncAutoTestName = async (section, shouldForce = false) => {
+    if (!shouldForce && testNameOverrideRef.current) {
+      return
+    }
+
+    setIsAutoNaming(true)
+    try {
+      const nextName = await getNextTestNameForSection(section)
+      setAutoTestName(nextName)
+      setTestName(nextName)
+      testNameOverrideRef.current = false
+    } finally {
+      setIsAutoNaming(false)
+    }
+  }
+
+  const parseMCQs = (text, answers) => {
+    const questions = []
+    const rawText = text.trim()
+    
+    console.log('=== PARSING MCQs ===')
+    console.log('Raw text preview:', rawText.slice(0, 200))
+    console.log('Answer key preview:', answers.slice(0, 100))
+    
+    // Parse answer key
+    const answerMap = {}
+    const normalizedAnswerText = formatAnswerKeyWithNumbers(answers)
+    console.log('Normalized answers:', normalizedAnswerText.slice(0, 100))
+    
+    const answerLines = normalizedAnswerText.trim().split('\n').filter((line) => line.trim())
+    console.log('Answer lines:', answerLines)
+    
+    answerLines.forEach((line) => {
+      const match = line.match(/(\d+)[\s\-\.:]+([A-Da-d])/i)
+      if (match) {
+        answerMap[parseInt(match[1], 10)] = match[2].toUpperCase()
+      }
+    })
+    
+    console.log('Answer map:', answerMap)
+
+    const optionPattern = /^([A-Da-d])[\)\.\s]+(.+)/
+    const lines = rawText.split('\n').map((line) => line.trim()).filter(Boolean)
+    console.log('Total lines to parse:', lines.length)
+    console.log('First 5 lines:', lines.slice(0, 5))
+    
     let currentQuestion = null
     let questionNum = 0
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      
-      // Check if this is a new question (starts with number)
+      const line = lines[i]
+
       const questionMatch = line.match(/^(\d+)[\.\)\s]+(.+)/)
       if (questionMatch) {
         if (currentQuestion && currentQuestion.options.length === 4) {
           questions.push(currentQuestion)
+          console.log('Pushed question:', currentQuestion.id)
         }
-        questionNum = parseInt(questionMatch[1])
+
+        questionNum = parseInt(questionMatch[1], 10)
         currentQuestion = {
           id: questionNum,
           question: questionMatch[2].trim(),
           options: [],
           correct: 0,
-          part: detectSection(questionMatch[2])
+          part: detectSection(questionMatch[2]),
         }
+        console.log('Found question:', questionNum, currentQuestion.question.slice(0, 50))
         continue
       }
 
-      // Check if this is an option
-      const optionMatch = line.match(/^([A-Da-d])[\)\.\s]+(.+)/)
+      const optionMatch = line.match(optionPattern)
       if (optionMatch && currentQuestion) {
         currentQuestion.options.push(optionMatch[2].trim())
-        
-        // Set correct answer based on answer key
-        const correctLetter = answerMap[questionNum]
+        const correctLetter = answerMap[currentQuestion.id]
         if (correctLetter) {
-          const letterIndex = correctLetter.charCodeAt(0) - 65
-          currentQuestion.correct = letterIndex
+          currentQuestion.correct = correctLetter.charCodeAt(0) - 65
+        }
+
+        if (currentQuestion.options.length === 4) {
+          questions.push(currentQuestion)
+          console.log('Pushed question with all options:', currentQuestion.id)
+          currentQuestion = null
         }
       }
     }
 
-    // Add last question
     if (currentQuestion && currentQuestion.options.length === 4) {
       questions.push(currentQuestion)
+      console.log('Pushed final question:', currentQuestion.id)
     }
 
+    console.log('After first pass:', questions.length, 'questions')
+
+    // Fallback for pasted blocks without visible numbering at the start of each block.
+    if (questions.length === 0) {
+      console.log('Trying fallback block parsing...')
+      const blocks = rawText
+        .split(/\n\s*\n+/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+
+      console.log('Found blocks:', blocks.length)
+
+      blocks.forEach((block, index) => {
+        const blockLines = block.split('\n').map((line) => line.trim()).filter(Boolean)
+        const optionLines = blockLines.filter((line) => optionPattern.test(line))
+
+        if (optionLines.length !== 4) {
+          console.log(`Block ${index} skipped: ${optionLines.length} option lines (expected 4)`)
+          return
+        }
+
+        const optionStartIndex = blockLines.findIndex((line) => optionPattern.test(line))
+        if (optionStartIndex <= 0) {
+          console.log(`Block ${index} skipped: no question line before options`)
+          return
+        }
+
+        const questionTextRaw = blockLines.slice(0, optionStartIndex).join(' ').trim()
+        const numberedQuestionMatch = questionTextRaw.match(/^(\d+)[\.\)\s]+(.+)/)
+        const questionText = numberedQuestionMatch ? numberedQuestionMatch[2].trim() : questionTextRaw
+
+        const question = {
+          id: index + 1,
+          question: questionText,
+          options: optionLines.map((line) => line.match(optionPattern)[2].trim()),
+          correct: 0,
+          part: detectSection(questionText),
+        }
+
+        const correctLetter = answerMap[index + 1]
+        if (correctLetter) {
+          question.correct = correctLetter.charCodeAt(0) - 65
+        }
+
+        questions.push(question)
+        console.log('Fallback parsed question:', index + 1)
+      })
+      
+      console.log('After fallback:', questions.length, 'questions')
+    }
+
+    console.log('=== FINAL RESULT ===')
+    console.log('Total questions parsed:', questions.length)
     return questions
   }
 
@@ -133,7 +344,7 @@ function CreateTest() {
     return 'General'
   }
 
-  const handlePasteMCQs = () => {
+  const handlePasteMCQs = async () => {
     setError('')
     setSuccess('')
     
@@ -153,7 +364,16 @@ function CreateTest() {
     setIsProcessing(true)
 
     try {
+      console.log('=== CREATE TEST START ===')
+      console.log('User:', user?.uid)
+      console.log('MCQ text length:', mcqText.length)
+      console.log('Answer key length:', answerKey.length)
+      
       const questions = parseMCQs(mcqText, answerKey)
+      console.log('Parsed questions:', questions.length)
+      if (questions.length > 0) {
+        console.log('First question:', questions[0])
+      }
       
       if (questions.length === 0) {
         setError('Could not parse any questions. Please check the format.')
@@ -161,38 +381,33 @@ function CreateTest() {
         return
       }
 
-      // Apply section type if not auto
-      let targetCategory = sectionType
-      if (sectionType === 'auto') {
-        // Detect category from first question or majority
-        const sectionCounts = { english: 0, quantitative: 0, analytical: 0 }
-        questions.forEach(q => {
-          const section = detectSection(q.question).toLowerCase()
-          if (section === 'english') sectionCounts.english++
-          else if (section === 'quantitative') sectionCounts.quantitative++
-          else if (section === 'analytical') sectionCounts.analytical++
-        })
-        // Pick the majority section
-        const maxSection = Object.entries(sectionCounts).reduce((a, b) => a[1] > b[1] ? a : b)
-        targetCategory = maxSection[1] > 0 ? maxSection[0] : 'english'
-      }
+      // Apply selected section type
+      let targetCategory = sectionType.toLowerCase().trim()
       
       // Update part names to be consistent
       questions.forEach(q => q.part = targetCategory.charAt(0).toUpperCase() + targetCategory.slice(1))
 
-      // Save to localStorage
-      const customTests = JSON.parse(localStorage.getItem('customTests') || '[]')
+      if (!user) {
+        setError('You must be logged in to create a test.')
+        setIsProcessing(false)
+        return
+      }
+
       const newTest = {
         id: `custom-${Date.now()}`,
         name: testName,
         category: targetCategory,
         questions: questions,
         createdAt: new Date().toISOString(),
-        questionCount: questions.length
+        questionCount: questions.length,
       }
-      customTests.push(newTest)
-      localStorage.setItem('customTests', JSON.stringify(customTests))
 
+      console.log('Saving test to Firebase:', newTest.id)
+      console.log('Test payload:', newTest)
+      
+      await saveUserCustomTest(user.uid, newTest)
+
+      console.log('✓ Test saved successfully')
       const categoryTitle = targetCategory.charAt(0).toUpperCase() + targetCategory.slice(1)
       setSuccess(`Successfully created "${testName}" with ${questions.length} questions in ${categoryTitle}!`)
       setMcqText('')
@@ -200,71 +415,106 @@ function CreateTest() {
       setTestName('')
       
       setTimeout(() => {
-        navigate(`/test/${targetCategory}`)
+        navigate('/test')
       }, 2000)
     } catch (err) {
-      setError('Error processing MCQs. Please check the format.')
+      console.error('=== CREATE TEST ERROR ===')
+      console.error('Error object:', err)
+      console.error('Error code:', err?.code)
+      console.error('Error message:', err?.message)
+      console.error('Full stack:', err?.stack)
+      
+      const code = err?.code || ''
+      if (code === 'permission-denied' || code === 'PERMISSION_DENIED') {
+        setError('Permission denied. Check Firestore rules allow writes to users/{uid}/customTests.')
+      } else if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'DEADLINE_EXCEEDED') {
+        setError('Firebase timeout. Check internet and try again.')
+      } else if (err?.message?.includes('timed out')) {
+        setError('Save timed out. Your internet may be slow. Try again.')
+      } else {
+        setError(err?.message ? `Error: ${err.message}` : 'Error saving test. Try again.')
+      }
     }
     
     setIsProcessing(false)
   }
 
-  const handleVideoToMCQs = () => {
-    setError('')
-    setSuccess('')
-    
-    if (!videoUrl.trim()) {
-      setError('Please enter a YouTube video URL')
+  const handleMcqBlur = () => {
+    if (!shouldFormatMcqText(mcqText)) {
       return
     }
-    if (!testName.trim()) {
-      setError('Please enter a test name')
+    if (mcqText === lastFormattedValueRef.current) {
       return
     }
 
-    // Note: This would require backend integration with YouTube API and AI
-    setError('Video to MCQs feature requires backend AI integration. Coming soon!')
+    const sourceText = mcqText
+    const startedAt = Date.now()
+    setIsNumbering(true)
+
+    // Defer heavy formatting so the loading bar can paint first.
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const formatted = formatMcqTextWithNumbers(sourceText)
+        if (formatted !== sourceText) {
+          lastFormattedValueRef.current = formatted
+          setMcqText(formatted)
+        }
+        const elapsed = Date.now() - startedAt
+        const minimumVisibleMs = 600
+        const remaining = Math.max(0, minimumVisibleMs - elapsed)
+        setTimeout(() => setIsNumbering(false), remaining)
+      }, 0)
+    })
   }
 
-  const handlePdfToMCQs = () => {
-    setError('')
-    setSuccess('')
-    
-    if (!pdfText.trim()) {
-      setError('Please paste the PDF text content')
+  const handleAnswerKeyBlur = () => {
+    if (!shouldFormatAnswerKeyText(answerKey)) {
       return
     }
-    if (!testName.trim()) {
-      setError('Please enter a test name')
+    if (answerKey === lastFormattedAnswerValueRef.current) {
       return
     }
 
-    // Note: This would require backend AI integration
-    setError('PDF to MCQs feature requires backend AI integration. Coming soon!')
+    const sourceText = answerKey
+    const startedAt = Date.now()
+    setIsAnswerNumbering(true)
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const formatted = formatAnswerKeyWithNumbers(sourceText)
+        if (formatted !== sourceText) {
+          lastFormattedAnswerValueRef.current = formatted
+          setAnswerKey(formatted)
+        }
+        const elapsed = Date.now() - startedAt
+        const minimumVisibleMs = 600
+        const remaining = Math.max(0, minimumVisibleMs - elapsed)
+        setTimeout(() => setIsAnswerNumbering(false), remaining)
+      }, 0)
+    })
   }
+
+  const handleSectionChange = async (value) => {
+    setSectionType(value)
+    testNameOverrideRef.current = false
+    await syncAutoTestName(value, true)
+  }
+
+  const handleTestNameChange = (value) => {
+    setTestName(value)
+    testNameOverrideRef.current = value.trim() !== autoTestName.trim()
+  }
+
+  // Keep the default test name aligned with the selected section and existing Firebase tests.
+  useEffect(() => {
+    syncAutoTestName(sectionType, false)
+  }, [sectionType, user])
 
   return (
     <div className="create-test-container">
       <div className="page-header">
         <h1 className="page-title">Create Test</h1>
-        <p className="page-description">Generate MCQs from different sources</p>
-      </div>
-
-      <div className="create-test-tabs">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`create-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab(tab.id)
-              setError('')
-              setSuccess('')
-            }}
-          >
-            {tab.icon}
-            <span>{tab.label}</span>
-          </button>
-        ))}
+        <p className="page-description">Create MCQ tests by pasting questions and answer key</p>
       </div>
 
       {error && (
@@ -288,21 +538,23 @@ function CreateTest() {
         </div>
       )}
 
-      <div className="create-test-content">
-        {/* Common Test Name Input */}
-        <div className="form-group">
-          <label className="form-label">Test Name</label>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="e.g., English Practice Test 2"
-            value={testName}
-            onChange={(e) => setTestName(e.target.value)}
-          />
-        </div>
+      <div className="create-test-layout">
+        <div className="create-test-content">
+          <div className="form-group">
+            <label className="form-label">Test Name</label>
+              <input
+              type="text"
+              className="form-input"
+              placeholder="e.g., English Practice Test 2"
+              value={testName}
+              readOnly
+              aria-readonly="true"
+            />
+            {isAutoNaming && (
+              <div className="name-status-text">Setting next available test name...</div>
+            )}
+          </div>
 
-        {/* Paste MCQs Tab */}
-        {activeTab === 'paste' && (
           <div className="tab-content">
             <div className="tab-description">
               <h3>📋 Paste Your MCQs</h3>
@@ -314,18 +566,25 @@ function CreateTest() {
               <select
                 className="form-select"
                 value={sectionType}
-                onChange={(e) => setSectionType(e.target.value)}
+                onChange={(e) => handleSectionChange(e.target.value)}
               >
-                <option value="auto">Auto Detect</option>
-                <option value="English">English</option>
-                <option value="Quantitative">Quantitative</option>
-                <option value="Analytical">Analytical</option>
+                <option value="english">English</option>
+                <option value="quantitative">Quantitative</option>
+                <option value="analytical">Analytical</option>
               </select>
             </div>
 
             <div className="form-row">
               <div className="form-group flex-2">
                 <label className="form-label">MCQs Text</label>
+                {isNumbering && (
+                  <div className="numbering-status">
+                    <p>Assigning question numbers...</p>
+                    <div className="numbering-progress-track">
+                      <div className="numbering-progress-bar"></div>
+                    </div>
+                  </div>
+                )}
                 <textarea
                   className="form-textarea"
                   rows="12"
@@ -344,11 +603,20 @@ C) A = C
 D) None`}
                   value={mcqText}
                   onChange={(e) => setMcqText(e.target.value)}
+                  onBlur={handleMcqBlur}
                 />
               </div>
 
               <div className="form-group flex-1">
                 <label className="form-label">Answer Key</label>
+                {isAnswerNumbering && (
+                  <div className="numbering-status">
+                    <p>Assigning answer numbers...</p>
+                    <div className="numbering-progress-track">
+                      <div className="numbering-progress-bar"></div>
+                    </div>
+                  </div>
+                )}
                 <textarea
                   className="form-textarea"
                   rows="12"
@@ -361,11 +629,12 @@ D) None`}
 ...`}
                   value={answerKey}
                   onChange={(e) => setAnswerKey(e.target.value)}
+                  onBlur={handleAnswerKeyBlur}
                 />
               </div>
             </div>
 
-            <button 
+            <button
               className="create-btn"
               onClick={handlePasteMCQs}
               disabled={isProcessing}
@@ -385,158 +654,9 @@ D) None`}
               )}
             </button>
           </div>
-        )}
-
-        {/* Video to MCQs Tab */}
-        {activeTab === 'video' && (
-          <div className="tab-content">
-            <div className="tab-description">
-              <h3>🎬 Video to MCQs</h3>
-              <p>Enter a YouTube video URL to generate MCQs from its content.</p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">YouTube Video URL</label>
-              <input
-                type="url"
-                className="form-input"
-                placeholder="https://www.youtube.com/watch?v=..."
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Section Type</label>
-              <select
-                className="form-select"
-                value={sectionType}
-                onChange={(e) => setSectionType(e.target.value)}
-              >
-                <option value="auto">Auto Detect</option>
-                <option value="English">English</option>
-                <option value="Quantitative">Quantitative</option>
-                <option value="Analytical">Analytical</option>
-              </select>
-            </div>
-
-            <div className="auto-detect-info">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4M12 8h.01" />
-              </svg>
-              <span>Number of questions will be automatically detected from video content</span>
-            </div>
-
-            <div className="coming-soon-badge">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <span>Requires AI Backend Integration</span>
-            </div>
-
-            <button 
-              className="create-btn"
-              onClick={handleVideoToMCQs}
-              disabled={isProcessing}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              Generate from Video
-            </button>
-          </div>
-        )}
-
-        {/* PDF to MCQs Tab */}
-        {activeTab === 'pdf' && (
-          <div className="tab-content">
-            <div className="tab-description">
-              <h3>📄 PDF to MCQs</h3>
-              <p>Paste text from a PDF document to generate MCQs.</p>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">PDF Text Content</label>
-              <textarea
-                className="form-textarea"
-                rows="10"
-                placeholder="Paste the text content extracted from your PDF here..."
-                value={pdfText}
-                onChange={(e) => setPdfText(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Section Type</label>
-              <select
-                className="form-select"
-                value={sectionType}
-                onChange={(e) => setSectionType(e.target.value)}
-              >
-                <option value="auto">Auto Detect</option>
-                <option value="English">English</option>
-                <option value="Quantitative">Quantitative</option>
-                <option value="Analytical">Analytical</option>
-              </select>
-            </div>
-
-            <div className="auto-detect-info">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4M12 8h.01" />
-              </svg>
-              <span>Number of questions will be automatically detected from PDF content</span>
-            </div>
-
-            <div className="coming-soon-badge">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <span>Requires AI Backend Integration</span>
-            </div>
-
-            <button 
-              className="create-btn"
-              onClick={handlePdfToMCQs}
-              disabled={isProcessing}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-              Generate from PDF
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Instructions */}
-      <div className="create-instructions">
-        <h3>📝 Format Instructions</h3>
-        <div className="instructions-grid">
-          <div className="instruction-card">
-            <h4>MCQ Format</h4>
-            <pre>{`1. Question text here?
-A) Option A
-B) Option B
-C) Option C
-D) Option D`}</pre>
-          </div>
-          <div className="instruction-card">
-            <h4>Answer Key Format</h4>
-            <pre>{`1-B
-2-A
-3-C
-4-D`}</pre>
-          </div>
         </div>
-      </div>
 
-      {/* AI Prompt Template */}
-      <div className="ai-prompt-section">
+        <div className="ai-prompt-section">
         <div className="ai-prompt-header">
           <h3>🤖 AI Prompt Template</h3>
           <p>Copy this prompt and use it with ChatGPT, Claude, or any AI to generate MCQs in the correct format</p>
@@ -582,7 +702,8 @@ IMPORTANT:
 - Do NOT add explanations
 - Do NOT add extra text
 - Follow the exact format above
-- Answers must be A, B, C, or D only`}</pre>
+- Answers must be A, B, C, or D only
+- Make sure MCQs are from real past GAT paper`}</pre>
           <button 
             className="copy-prompt-btn"
             onClick={() => {
@@ -626,7 +747,8 @@ IMPORTANT:
 - Do NOT add explanations
 - Do NOT add extra text
 - Follow the exact format above
-- Answers must be A, B, C, or D only`
+- Answers must be A, B, C, or D only
+- Make sure MCQs are from real past GAT paper`
               navigator.clipboard.writeText(prompt)
               alert('Prompt copied to clipboard!')
             }}
@@ -648,6 +770,7 @@ IMPORTANT:
             <li>Replace <code>[YOUR TOPIC HERE]</code> with specific topic (e.g., "Synonyms and Antonyms")</li>
             <li>Copy the AI's response and paste MCQs and Answer Key in the fields above</li>
           </ol>
+        </div>
         </div>
       </div>
     </div>

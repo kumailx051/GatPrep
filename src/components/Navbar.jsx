@@ -1,11 +1,28 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { signOut } from 'firebase/auth'
+import { auth } from '../firebase'
+import { useAuth } from '../context/AuthContext'
 
 function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
   const location = useLocation()
+  const { user } = useAuth()
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
+
+  useEffect(() => {
+    setShowProfileMenu(false)
+  }, [location.pathname])
+
+  const handleLogout = async () => {
+    await signOut(auth)
+    setIsOpen(false)
+    setShowProfileMenu(false)
+  }
+
+  const avatarLabel = user?.email ? user.email.charAt(0).toUpperCase() : 'U'
 
   return (
     <nav className="navbar">
@@ -67,6 +84,43 @@ function Navbar() {
               Create Test
             </Link>
           </li>
+          {user ? (
+            <li className="navbar-avatar-item">
+              <button
+                type="button"
+                className="navbar-avatar-btn"
+                onClick={() => setShowProfileMenu((prev) => !prev)}
+                aria-label="Open user menu"
+              >
+                {avatarLabel}
+              </button>
+
+              {showProfileMenu && (
+                <div className="navbar-avatar-dropdown">
+                  <p className="navbar-user-email">{user.email}</p>
+                  <Link to="/profile" className="navbar-dropdown-link" onClick={() => setIsOpen(false)}>
+                    Profile
+                  </Link>
+                  <Link to="/progress" className="navbar-dropdown-link" onClick={() => setIsOpen(false)}>
+                    Progress
+                  </Link>
+                  <button type="button" className="navbar-dropdown-logout" onClick={handleLogout}>
+                    Logout
+                  </button>
+                </div>
+              )}
+            </li>
+          ) : (
+            <li>
+              <Link
+                to="/auth"
+                className={`navbar-link navbar-link-auth ${isActive('/auth') ? 'active' : ''}`}
+                onClick={() => setIsOpen(false)}
+              >
+                Login
+              </Link>
+            </li>
+          )}
         </ul>
       </div>
     </nav>

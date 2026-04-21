@@ -1,26 +1,62 @@
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { getCategoryTests, getUserCompletedTests } from '../services/userData'
 
 function Test() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [completedTests, setCompletedTests] = useState({})
   const [userTestCounts, setUserTestCounts] = useState({ english: 0, quantitative: 0, analytical: 0 })
+  const [totalTestCounts, setTotalTestCounts] = useState({ english: 0, quantitative: 0, analytical: 0 })
+  const [isLoading, setIsLoading] = useState(true)
+
+  const normalizeCategory = (value) => (value || '').toString().trim().toLowerCase()
 
   useEffect(() => {
-    const saved = localStorage.getItem('completedTests')
-    if (saved) {
-      setCompletedTests(JSON.parse(saved))
-    }
-    
-    const customTests = JSON.parse(localStorage.getItem('customTests') || '[]')
-    const counts = { english: 0, quantitative: 0, analytical: 0 }
-    customTests.forEach(test => {
-      if (counts[test.category] !== undefined) {
-        counts[test.category]++
+    const loadData = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
       }
-    })
-    setUserTestCounts(counts)
-  }, [])
+
+      try {
+        // Resolve each request independently so one failing call doesn't block the page.
+        const [completedResult, englishResult, quantitativeResult, analyticalResult] = await Promise.allSettled([
+          getUserCompletedTests(user.uid),
+          getCategoryTests(user.uid, 'english'),
+          getCategoryTests(user.uid, 'quantitative'),
+          getCategoryTests(user.uid, 'analytical'),
+        ])
+
+        const remoteCompleted = completedResult.status === 'fulfilled' ? completedResult.value : {}
+        const englishTests = englishResult.status === 'fulfilled' ? englishResult.value : []
+        const quantitativeTests = quantitativeResult.status === 'fulfilled' ? quantitativeResult.value : []
+        const analyticalTests = analyticalResult.status === 'fulfilled' ? analyticalResult.value : []
+
+        setCompletedTests(remoteCompleted)
+
+        const allCounts = {
+          english: englishTests.length,
+          quantitative: quantitativeTests.length,
+          analytical: analyticalTests.length,
+        }
+
+        const ownerCounts = {
+          english: englishTests.filter((test) => test.isUserTest).length,
+          quantitative: quantitativeTests.filter((test) => test.isUserTest).length,
+          analytical: analyticalTests.filter((test) => test.isUserTest).length,
+        }
+
+        setTotalTestCounts(allCounts)
+        setUserTestCounts(ownerCounts)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [user])
 
   const testCategories = [
     {
@@ -32,7 +68,7 @@ function Test() {
           <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
         </svg>
       ),
-      totalTests: 1
+      totalTests: 0
     },
     {
       id: 'quantitative',
@@ -43,7 +79,7 @@ function Test() {
           <path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
         </svg>
       ),
-      totalTests: 1
+      totalTests: 0
     },
     {
       id: 'analytical',
@@ -54,7 +90,7 @@ function Test() {
           <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
       ),
-      totalTests: 1
+      totalTests: 0
     }
   ]
 
@@ -63,11 +99,19 @@ function Test() {
   }
 
   const getTotalTests = (category) => {
-    return category.totalTests + (userTestCounts[category.id] || 0)
+    return totalTestCounts[category.id] || 0
   }
 
   const handleCategoryClick = (categoryId) => {
     navigate(`/test/${categoryId}`)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="page-loader">
+        <p>Loading your test dashboard...</p>
+      </div>
+    )
   }
 
   return (

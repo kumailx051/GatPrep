@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getQuestionsByCategory } from '../data/questions'
+import { useAuth } from '../context/AuthContext'
+import { getUserCustomTestById, saveUserCompletedTest } from '../services/userData'
 
 function TestDetail() {
   const { category, testId } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   
   const [questions, setQuestions] = useState([])
   const [testName, setTestName] = useState('')
@@ -14,28 +16,43 @@ function TestDetail() {
   const [showFeedback, setShowFeedback] = useState({}) // Track which questions show feedback
   const [timeLeft, setTimeLeft] = useState(90 * 60) // 90 minutes in seconds
   const [isTimerRunning, setIsTimerRunning] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   const questionsPerPage = 10
-  const isCustomTest = category === 'custom'
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    if (isCustomTest) {
-      // Load custom test from localStorage by testId
-      const customTests = JSON.parse(localStorage.getItem('customTests') || '[]')
-      const customTest = customTests.find(t => t.id === testId)
-      if (customTest) {
-        setQuestions(customTest.questions)
-        setTestName(customTest.name)
-        setTestCategory(customTest.category)
+    const loadTest = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
       }
-    } else {
-      const allQuestions = getQuestionsByCategory(category)
-      // Don't randomize for practice - keep original order
-      setQuestions(allQuestions)
-      setTestName(`${category.charAt(0).toUpperCase() + category.slice(1)} Test 1`)
-      setTestCategory(category)
+
+      try {
+        setLoadError('')
+        const remoteTest = await getUserCustomTestById(user.uid, testId)
+
+        if (!remoteTest) {
+          setQuestions([])
+          setLoadError('Test not found in Firebase.')
+          return
+        }
+
+        const remoteQuestions = Array.isArray(remoteTest.questions) ? remoteTest.questions : []
+        setQuestions(remoteQuestions)
+        setTestName(remoteTest.name || `${(category || 'test').charAt(0).toUpperCase() + (category || 'test').slice(1)} Test`)
+        setTestCategory((remoteTest.category || category || 'general').toLowerCase())
+      } catch (error) {
+        console.error('Failed to load test from Firebase:', error)
+        setQuestions([])
+        setLoadError('Unable to load test from Firebase. Please try again.')
+      } finally {
+        setIsLoading(false)
+      }
     }
-  }, [category, testId, isCustomTest])
+
+    loadTest()
+  }, [category, testId, user])
 
   useEffect(() => {
     if (!isTimerRunning || timeLeft <= 0) return
@@ -76,7 +93,7 @@ function TestDetail() {
     }))
   }
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setIsTimerRunning(false)
     
     // Calculate score
@@ -107,16 +124,16 @@ function TestDetail() {
       total: questions.length,
       category: testCategory,
       testName,
+      testId,
       timeSpent,
       percentage,
       passed,
-      isCustomTest
+      isCustomTest: true
     }
 
-    // Save to localStorage with proper key
-    const key = isCustomTest ? `custom-${testId}` : `${category}-${testId}`
-    const completedTests = JSON.parse(localStorage.getItem('completedTests') || '{}')
-    completedTests[key] = {
+    // Save completed result to Firestore
+    const key = testId
+    const savedResult = {
       correct,
       incorrect,
       skipped,
@@ -126,13 +143,15 @@ function TestDetail() {
       completedAt: new Date().toISOString(),
       fullResult: resultData
     }
-    localStorage.setItem('completedTests', JSON.stringify(completedTests))
+    if (user) {
+      await saveUserCompletedTest(user.uid, key, savedResult)
+    }
 
     // Navigate to result page with state
     navigate('/result', {
       state: resultData
     })
-  }, [questions, answers, timeLeft, category, testId, testCategory, testName, isCustomTest, navigate])
+  }, [questions, answers, timeLeft, testId, testCategory, testName, navigate, user])
 
   const handleReset = () => {
     if (window.confirm('Are you sure you want to reset the test? All answers will be cleared.')) {
@@ -159,7 +178,7 @@ function TestDetail() {
   ).length
 
   const getCategoryTitle = () => {
-    return category.charAt(0).toUpperCase() + category.slice(1)
+    return (testCategory || category || 'general').charAt(0).toUpperCase() + (testCategory || category || 'general').slice(1)
   }
 
   // Get part label for question
@@ -168,11 +187,27 @@ function TestDetail() {
     return ''
   }
 
+  if (isLoading) {
+    return (
+      <div className="page-loader">
+        <p>Loading test...</p>
+      </div>
+    )
+  }
+
+  if (!questions.length) {
+    return (
+      <div className="page-loader">
+        <p>{loadError || 'Test not found.'}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="test-detail-container">
       <div className="test-header">
         <div className="test-info">
-          <h1>{getCategoryTitle()} - Test 1</h1>
+          <h1>{testName || `${getCategoryTitle()} Test`}</h1>
           <p className="progress-text">
             Question {currentPage * questionsPerPage + 1} - {Math.min((currentPage + 1) * questionsPerPage, questions.length)} of {questions.length}
           </p>

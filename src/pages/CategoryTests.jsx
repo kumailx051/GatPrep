@@ -1,26 +1,54 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
+import {
+  getCategoryTests,
+  deleteUserCompletedTest,
+  deleteUserCustomTest,
+  getUserCompletedTests,
+} from '../services/userData'
 
 function CategoryTests() {
   const { category } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [completedTests, setCompletedTests] = useState({})
-  const [userTests, setUserTests] = useState([])
+  const [categoryTests, setCategoryTests] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    // Load completed tests from localStorage
-    const saved = localStorage.getItem('completedTests')
-    if (saved) {
-      setCompletedTests(JSON.parse(saved))
+    const loadData = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setLoadError('')
+        const [completedResult, categoryTestsResult] = await Promise.allSettled([
+          getUserCompletedTests(user.uid),
+          getCategoryTests(user.uid, category),
+        ])
+
+        setCompletedTests(completedResult.status === 'fulfilled' ? completedResult.value : {})
+        const testsValue = categoryTestsResult.status === 'fulfilled' ? categoryTestsResult.value : []
+        setCategoryTests(Array.isArray(testsValue) ? testsValue : [])
+      } catch (error) {
+        console.error('Failed to load category tests:', error)
+        setLoadError('Unable to load tests right now. Please refresh and try again.')
+        setCompletedTests({})
+        setCategoryTests([])
+      } finally {
+        setIsLoading(false)
+      }
     }
-    
-    // Load user-generated tests for this category
-    const customTests = JSON.parse(localStorage.getItem('customTests') || '[]')
-    const categoryTests = customTests.filter(t => t.category === category)
-    setUserTests(categoryTests)
-  }, [category])
+
+    loadData()
+  }, [category, user])
 
   const getCategoryTitle = () => {
+    if (!category) return 'Tests'
     return category.charAt(0).toUpperCase() + category.slice(1)
   }
 
@@ -49,50 +77,41 @@ function CategoryTests() {
     }
   }
 
-  const tests = [
-    { id: 'test-1', name: 'Test 1', questions: 100, duration: '90 mins', isDefault: true }
-  ]
-
-  const getTestResult = (testId, isUserTest = false) => {
-    const key = isUserTest ? `custom-${testId}` : `${category}-${testId}`
+  const getTestResult = (testId) => {
+    const key = testId
     return completedTests[key]
   }
 
-  const handleStartTest = (testId, isUserTest = false) => {
-    if (isUserTest) {
-      navigate(`/test/custom/${testId}`)
-    } else {
-      navigate(`/test/${category}/${testId}`)
-    }
+  const handleStartTest = (testId) => {
+    navigate(`/test/custom/${testId}`)
   }
 
-  const handleRetakeTest = (testId, isUserTest = false) => {
-    const key = isUserTest ? `custom-${testId}` : `${category}-${testId}`
-    const updated = { ...completedTests }
-    delete updated[key]
-    localStorage.setItem('completedTests', JSON.stringify(updated))
-    setCompletedTests(updated)
+  const handleRetakeTest = async (testId) => {
+    const key = testId
+    if (user) {
+      await deleteUserCompletedTest(user.uid, key)
+    }
+    setCompletedTests((prev) => {
+      const updated = { ...prev }
+      delete updated[key]
+      return updated
+    })
     
-    if (isUserTest) {
-      navigate(`/test/custom/${testId}`)
-    } else {
-      navigate(`/test/${category}/${testId}`)
-    }
+    navigate(`/test/custom/${testId}`)
   }
 
-  const handleDeleteUserTest = (testId) => {
+  const handleDeleteUserTest = async (testId) => {
     if (window.confirm('Are you sure you want to delete this test?')) {
-      const customTests = JSON.parse(localStorage.getItem('customTests') || '[]')
-      const updated = customTests.filter(t => t.id !== testId)
-      localStorage.setItem('customTests', JSON.stringify(updated))
-      setUserTests(updated.filter(t => t.category === category))
-      
-      // Also remove completed result
-      const key = `custom-${testId}`
-      const updatedCompleted = { ...completedTests }
-      delete updatedCompleted[key]
-      localStorage.setItem('completedTests', JSON.stringify(updatedCompleted))
-      setCompletedTests(updatedCompleted)
+      if (user) {
+        await deleteUserCustomTest(user.uid, testId)
+        await deleteUserCompletedTest(user.uid, testId)
+      }
+      setCategoryTests((prev) => prev.filter((test) => test.id !== testId))
+      setCompletedTests((prev) => {
+        const updated = { ...prev }
+        delete updated[testId]
+        return updated
+      })
     }
   }
 
@@ -103,9 +122,15 @@ function CategoryTests() {
     })
   }
 
-  const renderTestCard = (test, isUserTest = false) => {
-    const result = getTestResult(test.id, isUserTest)
+  const renderTestCard = (test) => {
+    const result = getTestResult(test.id)
     const isCompleted = !!result
+    const isUserTest = !!test.isUserTest
+    const totalQuestions = Number.isInteger(test.questionCount)
+      ? test.questionCount
+      : Array.isArray(test.questions)
+        ? test.questions.length
+        : 0
 
     return (
       <div key={test.id} className={`test-card ${isCompleted ? 'completed' : ''}`}>
@@ -134,7 +159,7 @@ function CategoryTests() {
         </div>
 
         <div className="test-card-info">
-          <span>{test.questions || test.questionCount} Questions</span>
+          <span>{totalQuestions} Questions</span>
           <span>•</span>
           <span>{test.duration || '90 mins'}</span>
           {isUserTest && test.createdAt && (
@@ -183,7 +208,7 @@ function CategoryTests() {
           )}
           {isCompleted ? (
             <>
-              <button className="action-btn secondary" onClick={() => handleRetakeTest(test.id, isUserTest)}>
+              <button className="action-btn secondary" onClick={() => handleRetakeTest(test.id)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M1 4v6h6M23 20v-6h-6" />
                   <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
@@ -195,7 +220,7 @@ function CategoryTests() {
               </button>
             </>
           ) : (
-            <button className="action-btn primary" onClick={() => handleStartTest(test.id, isUserTest)}>
+            <button className="action-btn primary" onClick={() => handleStartTest(test.id)}>
               Start Test
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M12 5l7 7-7 7" />
@@ -203,6 +228,25 @@ function CategoryTests() {
             </button>
           )}
         </div>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="page-loader">
+        <p>Loading tests...</p>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="page-loader">
+        <p>{loadError}</p>
+        <button className="action-btn primary" onClick={() => navigate('/test')}>
+          Back to Test Dashboard
+        </button>
       </div>
     )
   }
@@ -224,29 +268,14 @@ function CategoryTests() {
         <p className="category-description">Select a test to begin your practice</p>
       </div>
 
-      {/* Default Tests */}
       <div className="tests-section">
         <h2 className="tests-section-title">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          Official Tests
+           Tests
         </h2>
-        <div className="tests-list">
-          {tests.map((test) => renderTestCard(test, false))}
-        </div>
-      </div>
-
-      {/* User Generated Tests */}
-      <div className="tests-section user-tests-section">
         <div className="tests-section-header">
-          <h2 className="tests-section-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-            User Generated Tests
-          </h2>
           <button className="add-test-btn" onClick={() => navigate('/create-test')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 5v14M5 12h14" />
@@ -255,19 +284,19 @@ function CategoryTests() {
           </button>
         </div>
         
-        {userTests.length === 0 ? (
+        {categoryTests.length === 0 ? (
           <div className="empty-user-tests">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p>No custom tests yet for {getCategoryTitle()}</p>
+            <p>No Firebase tests found for {getCategoryTitle()}</p>
             <button className="action-btn primary" onClick={() => navigate('/create-test')}>
               Create Your First Test
             </button>
           </div>
         ) : (
           <div className="tests-list">
-            {userTests.map((test) => renderTestCard(test, true))}
+            {categoryTests.map((test) => renderTestCard(test))}
           </div>
         )}
       </div>
