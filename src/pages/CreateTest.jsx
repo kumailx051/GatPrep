@@ -17,6 +17,13 @@ function CreateTest() {
   const [mcqText, setMcqText] = useState('')
   const [answerKey, setAnswerKey] = useState('')
   const [sectionType, setSectionType] = useState('english')
+  const [sectionOptions, setSectionOptions] = useState([
+    'english',
+    'quantitative',
+    'analytical',
+  ])
+  const [showNewTypeInput, setShowNewTypeInput] = useState(false)
+  const [newTypeName, setNewTypeName] = useState('')
   
   // Test name
   const [testName, setTestName] = useState('')
@@ -563,15 +570,55 @@ function CreateTest() {
 
             <div className="form-group">
               <label className="form-label">Section Type</label>
-              <select
-                className="form-select"
-                value={sectionType}
-                onChange={(e) => handleSectionChange(e.target.value)}
-              >
-                <option value="english">English</option>
-                <option value="quantitative">Quantitative</option>
-                <option value="analytical">Analytical</option>
-              </select>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  className="form-select"
+                  value={sectionType}
+                  onChange={(e) => handleSectionChange(e.target.value)}
+                >
+                  {sectionOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="action-btn secondary"
+                  onClick={() => setShowNewTypeInput((s) => !s)}
+                >
+                  {showNewTypeInput ? 'Cancel' : 'Add Type'}
+                </button>
+              </div>
+              {showNewTypeInput && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="New type (e.g., Verbal)"
+                    value={newTypeName}
+                    onChange={(e) => setNewTypeName(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="action-btn primary"
+                    onClick={() => {
+                      const raw = (newTypeName || '').trim()
+                      if (!raw) return
+                      const key = raw.toLowerCase().replace(/\s+/g, '-')
+                      if (!sectionOptions.includes(key)) {
+                        setSectionOptions((prev) => [...prev, key])
+                      }
+                      setSectionType(key)
+                      setNewTypeName('')
+                      setShowNewTypeInput(false)
+                      syncAutoTestName(key, true)
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="form-row">
