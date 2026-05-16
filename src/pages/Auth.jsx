@@ -21,6 +21,7 @@ function Auth() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
   const [showResend, setShowResend] = useState(false)
+  const skipEmailVerification = import.meta.env.VITE_SKIP_EMAIL_VERIFICATION === 'true'
 
   useEffect(() => {
     const queryMode = new URLSearchParams(location.search).get('mode')
@@ -65,6 +66,7 @@ function Auth() {
       setPassword('')
       setMode('login')
     } catch (error) {
+      console.error('[Auth] login error:', error)
       setMessage({ type: 'error', text: error.message })
     } finally {
       setLoading(false)
@@ -79,7 +81,8 @@ function Auth() {
     try {
       console.log('[Auth] Attempt login for', email)
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
-      if (!userCredential.user.emailVerified) {
+      const isVerified = !!userCredential.user.emailVerified
+      if (!isVerified && !skipEmailVerification) {
         await signOut(auth)
         setShowResend(true)
         setMessage({
