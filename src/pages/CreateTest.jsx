@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUserCustomTestsByCategory, saveUserCustomTest, getCategories } from '../services/userData'
+import { getUserCustomTests, getUserCustomTestsByCategory, saveUserCustomTest, getCategories } from '../services/userData'
 
 function CreateTest() {
   const navigate = useNavigate()
@@ -26,6 +26,8 @@ function CreateTest() {
   // Test name
   const [testName, setTestName] = useState('')
   const [autoTestName, setAutoTestName] = useState('')
+  const [isCheckingName, setIsCheckingName] = useState(false)
+  const [nameConflict, setNameConflict] = useState('')
   const [parsedQuestions, setParsedQuestions] = useState([])
   const lastFormattedValueRef = useRef('')
   const lastFormattedAnswerValueRef = useRef('')
@@ -462,6 +464,10 @@ function CreateTest() {
       setError('Please enter a test name')
       return
     }
+    if (nameConflict) {
+      setError('This name is already in the database. Change name.')
+      return
+    }
 
     setIsProcessing(true)
 
@@ -495,6 +501,17 @@ function CreateTest() {
         return
       }
 
+      const existingTests = await getUserCustomTests(user.uid)
+      const duplicateName = existingTests.some(
+        (entry) => (entry?.name || '').trim().toLowerCase() === testName.trim().toLowerCase()
+      )
+      if (duplicateName) {
+        setNameConflict('This name is already in the database. Change name.')
+        setError('This name is already in the database. Change name.')
+        setIsProcessing(false)
+        return
+      }
+
       const newTest = {
         id: `custom-${Date.now()}`,
         name: testName,
@@ -515,6 +532,7 @@ function CreateTest() {
       setMcqText('')
       setAnswerKey('')
       setTestName('')
+      setNameConflict('')
       
       setTimeout(() => {
         navigate('/test')
@@ -617,11 +635,13 @@ function CreateTest() {
   const handleSectionChange = async (value) => {
     setSectionType(value)
     testNameOverrideRef.current = false
+    setNameConflict('')
     await syncAutoTestName(value, true)
   }
 
   const handleTestNameChange = (value) => {
     setTestName(value)
+    setNameConflict('')
     testNameOverrideRef.current = value.trim() !== autoTestName.trim()
   }
 
@@ -629,6 +649,41 @@ function CreateTest() {
   useEffect(() => {
     syncAutoTestName(sectionType, false)
   }, [sectionType, user])
+
+  useEffect(() => {
+    let mounted = true
+    if (!user || !testName.trim()) {
+      setNameConflict('')
+      setIsCheckingName(false)
+      return
+    }
+
+    setIsCheckingName(true)
+    const timeout = setTimeout(async () => {
+      try {
+        const existingTests = await getUserCustomTests(user.uid)
+        if (!mounted) return
+        const duplicateName = existingTests.some(
+          (entry) => (entry?.name || '').trim().toLowerCase() === testName.trim().toLowerCase()
+        )
+        setNameConflict(duplicateName ? 'This name is already in the database. Change name.' : '')
+      } catch (err) {
+        console.warn('[CreateTest] Name check failed:', err)
+        if (mounted) {
+          setNameConflict('')
+        }
+      } finally {
+        if (mounted) {
+          setIsCheckingName(false)
+        }
+      }
+    }, 350)
+
+    return () => {
+      mounted = false
+      clearTimeout(timeout)
+    }
+  }, [testName, user])
 
   // Load categories from Firestore so dropdown reflects saved types
   useEffect(() => {
@@ -642,8 +697,6 @@ function CreateTest() {
           { id: 'english', title: 'English' },
           { id: 'quantitative', title: 'Quantitative' },
           { id: 'analytical', title: 'Analytical' },
-          { id: 'research-methodology', title: 'Research Methodology' },
-          { id: 'iot', title: 'IOT' },
         ]
 
         // Merge defaults with remote categories, keeping remote entries if ids collide
@@ -705,11 +758,16 @@ function CreateTest() {
               className="form-input"
               placeholder="e.g., English Practice Test 2"
               value={testName}
-              readOnly
-              aria-readonly="true"
+              onChange={(e) => handleTestNameChange(e.target.value)}
             />
             {isAutoNaming && (
               <div className="name-status-text">Setting next available test name...</div>
+            )}
+            {!isAutoNaming && isCheckingName && (
+              <div className="name-status-text">Checking test name in database...</div>
+            )}
+            {!!nameConflict && (
+              <div className="name-status-text" style={{ color: '#dc2626' }}>{nameConflict}</div>
             )}
           </div>
 
@@ -834,7 +892,7 @@ D) None`}
             <button
               className="create-btn"
               onClick={handlePasteMCQs}
-              disabled={isProcessing}
+              disabled={isProcessing || isCheckingName || !!nameConflict}
             >
               {isProcessing ? (
                 <>
