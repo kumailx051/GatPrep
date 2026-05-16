@@ -26,7 +26,7 @@ function Test() {
       try {
         const [completedResult, categoriesResult] = await Promise.allSettled([
           getUserCompletedTests(user.uid),
-          getCategories(),
+          getCategories(user.uid),
         ])
 
         const remoteCompleted = completedResult.status === 'fulfilled' ? completedResult.value : {}

@@ -56,20 +56,51 @@ export async function createUserProfile(uid, email) {
 }
 
 // Categories helpers
-const getCategoriesCollection = () => collection(db, 'categories')
+const getTopLevelCategoriesCollection = () => collection(db, 'categories')
 
 export async function createCategory(key, title, createdBy = null) {
   if (!key || !title) throw new Error('key and title required')
-  const docRef = doc(db, 'categories', key)
   const payload = { title, createdBy: createdBy || null, createdAt: serverTimestamp() }
+
+  if (createdBy) {
+    // Save under the user's subcollection so non-admin users can create their own types.
+    const userRef = doc(db, 'users', createdBy, 'categories', key)
+    await setDoc(userRef, payload, { merge: true })
+    return { id: key, ...payload }
+  }
+
+  // Fallback: write to top-level categories (requires appropriate rules/admin)
+  const docRef = doc(db, 'categories', key)
   await setDoc(docRef, payload, { merge: true })
   return { id: key, ...payload }
 }
 
-export async function getCategories() {
+export async function getCategories(userId = null) {
   try {
-    const snapshot = await getDocs(getCategoriesCollection())
-    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const results = []
+    // Top-level categories (public)
+    try {
+      const snapshot = await getDocs(getTopLevelCategoriesCollection())
+      snapshot.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+    } catch (err) {
+      // ignore top-level read failures (rules may restrict)
+      console.warn('Top-level categories read skipped:', err?.code || err?.message)
+    }
+
+    // User-specific categories
+    if (userId) {
+      try {
+        const userCatsSnap = await getDocs(collection(db, 'users', userId, 'categories'))
+        userCatsSnap.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+      } catch (err) {
+        console.warn('Failed to read user categories:', err?.code || err?.message)
+      }
+    }
+
+    // Deduplicate by id, keeping user-specific override last
+    const map = new Map()
+    results.forEach((r) => map.set(r.id, r))
+    return Array.from(map.values())
   } catch (error) {
     console.warn('Failed to fetch categories:', error)
     return []

@@ -520,7 +520,7 @@ function CreateTest() {
     let mounted = true
     const load = async () => {
       try {
-        const cats = await getCategories()
+        const cats = await getCategories(user?.uid)
         if (!mounted) return
         if (cats && cats.length) {
           setSectionOptions(cats.map((c) => ({ id: c.id, title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)) })))
