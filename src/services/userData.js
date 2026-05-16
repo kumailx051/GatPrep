@@ -67,18 +67,29 @@ export async function createCategory(key, title, createdBy = null) {
     // Save under the user's subcollection so non-admin users can create their own types.
     const userRef = doc(db, 'users', createdBy, 'categories', key)
     await setDoc(userRef, payload, { merge: true })
+    
+    // Also save to public categories collection so it's discoverable by all users
+    try {
+      const publicCatRef = doc(db, 'categories', key)
+      await setDoc(publicCatRef, payload, { merge: true })
+      console.log('[createCategory] Saved to public categories collection')
+    } catch (err) {
+      console.warn('[createCategory] Public categories write skipped:', err?.code || err?.message)
+    }
+    
     // Best-effort: also create a top-level testType doc so it's discoverable globally.
     try {
       const topRef = doc(db, 'testType', key)
       await setDoc(topRef, payload, { merge: true })
+      console.log('[createCategory] Saved to testType collection')
     } catch (err) {
-      console.warn('Top-level testType write skipped:', err?.code || err?.message)
+      console.warn('[createCategory] Top-level testType write skipped:', err?.code || err?.message)
     }
     return { id: key, ...payload }
   }
 
-  // If no createdBy provided, write to top-level testType collection (requires rules/admin)
-  const docRef = doc(db, 'testType', key)
+  // If no createdBy provided, write to public categories collection (authenticated user required)
+  const docRef = doc(db, 'categories', key)
   await setDoc(docRef, payload, { merge: true })
   return { id: key, ...payload }
 }
