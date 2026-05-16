@@ -34,7 +34,7 @@ function Navbar() {
             <path d="M12 14l9-5-9-5-9 5 9 5z" />
             <path d="M12 14v7" />
           </svg>
-          GAT Prep
+          TestPrep
         </Link>
 
         <button className="mobile-menu-btn" onClick={() => setIsOpen(!isOpen)}>
