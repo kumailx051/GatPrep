@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getCategoryTests, getUserCompletedTests, getCategories, createCategory } from '../services/userData'
+import { getCategoryTests, getUserCompletedTests, getCategories, createCategory, deleteCategory } from '../services/userData'
 
 function Test() {
   const navigate = useNavigate()
@@ -126,6 +126,28 @@ function Test() {
     }
   }
 
+  const handleDeleteCategory = async (category) => {
+    if (!user || !category?.createdBy || category.createdBy !== user.uid) {
+      return
+    }
+
+    const confirmDelete = window.confirm(`Delete test type "${category.title}"? This will remove it from your section list.`)
+    if (!confirmDelete) return
+
+    setMessage({ type: '', text: '' })
+    try {
+      await deleteCategory(category.id, user.uid)
+      const remote = await getCategories(user.uid)
+      setCategories(remote)
+      setMessage({ type: 'success', text: `Type "${category.title}" deleted.` })
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
+    } catch (err) {
+      console.error('Failed to delete category:', err)
+      const detail = err?.code || err?.message || String(err)
+      setMessage({ type: 'error', text: `Failed to delete category: ${detail}` })
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="page-loader">
@@ -170,6 +192,7 @@ function Test() {
           const completedCount = getCompletedCount(category.id)
           const totalTests = getTotalTests(category)
           const userCount = userTestCounts[category.id] || 0
+          const canDeleteCategory = !!category.createdBy && category.createdBy === user?.uid
           
           return (
             <div 
@@ -186,6 +209,20 @@ function Test() {
                   <p style={{ fontSize: '0.85rem', color: '#718096', margin: 0 }}>{category.description}</p>
                 </div>
               </div>
+
+              {canDeleteCategory && (
+                <button
+                  type="button"
+                  className="action-btn secondary"
+                  style={{ marginTop: 12, marginBottom: 4, alignSelf: 'flex-start' }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteCategory(category)
+                  }}
+                >
+                  Delete Type
+                </button>
+              )}
 
               <div className="category-stats">
                 <div className="stat-item">

@@ -94,6 +94,30 @@ export async function createCategory(key, title, createdBy = null) {
   return { id: key, ...payload }
 }
 
+export async function deleteCategory(key, userId = null) {
+  if (!key) throw new Error('key required')
+
+  if (userId) {
+    try {
+      await deleteDoc(doc(db, 'users', userId, 'categories', key))
+    } catch (error) {
+      console.warn('[deleteCategory] User category delete skipped:', error?.code || error?.message)
+    }
+  }
+
+  try {
+    await deleteDoc(doc(db, 'categories', key))
+  } catch (error) {
+    console.warn('[deleteCategory] Public categories delete skipped:', error?.code || error?.message)
+  }
+
+  try {
+    await deleteDoc(doc(db, 'testType', key))
+  } catch (error) {
+    console.warn('[deleteCategory] testType delete skipped:', error?.code || error?.message)
+  }
+}
+
 export async function getCategories(userId = null) {
   try {
     const results = []
