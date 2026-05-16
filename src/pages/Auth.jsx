@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from '../context/AuthContext'
+import { createUserProfile } from '../services/userData'
 
 function Auth() {
   const location = useLocation()
@@ -39,6 +40,12 @@ function Auth() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+      // Ensure we have a user document with the email saved.
+      try {
+        await createUserProfile(userCredential.user.uid, email)
+      } catch (err) {
+        console.warn('Failed to create user profile:', err)
+      }
       await sendEmailVerification(userCredential.user)
       await signOut(auth)
       setMessage({

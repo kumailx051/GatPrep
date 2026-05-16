@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 
@@ -39,6 +40,18 @@ export async function saveUserCustomTest(uid, test) {
     console.log('[saveTest] ✓ Saved to public tests collection')
   } catch (error) {
     console.warn('[saveTest] Public mirror skipped (expected):', error.code || error.message)
+  }
+}
+
+export async function createUserProfile(uid, email) {
+  if (!uid) return
+  try {
+    const ref = doc(db, 'users', uid)
+    await setDoc(ref, { email, createdAt: serverTimestamp() }, { merge: true })
+    console.log('[createUserProfile] ✓ User profile created for', uid)
+  } catch (error) {
+    console.warn('[createUserProfile] Failed to create user profile:', error)
+    throw error
   }
 }
 
