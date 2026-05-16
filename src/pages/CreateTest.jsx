@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUserCustomTestsByCategory, saveUserCustomTest, getCategories, createCategory } from '../services/userData'
+import { getUserCustomTestsByCategory, saveUserCustomTest, getCategories } from '../services/userData'
 
 function CreateTest() {
   const navigate = useNavigate()
@@ -22,8 +22,6 @@ function CreateTest() {
     { id: 'quantitative', title: 'Quantitative' },
     { id: 'analytical', title: 'Analytical' },
   ])
-  const [showNewTypeInput, setShowNewTypeInput] = useState(false)
-  const [newTypeName, setNewTypeName] = useState('')
   
   // Test name
   const [testName, setTestName] = useState('')
@@ -598,54 +596,14 @@ function CreateTest() {
                   value={sectionType}
                   onChange={(e) => handleSectionChange(e.target.value)}
                 >
-                    {sectionOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.title || (opt.id.charAt(0).toUpperCase() + opt.id.slice(1))}
-                      </option>
-                    ))}
+                  {sectionOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.title || (opt.id.charAt(0).toUpperCase() + opt.id.slice(1))}
+                    </option>
+                  ))}
                 </select>
-                <button
-                  type="button"
-                  className="action-btn secondary"
-                  onClick={() => setShowNewTypeInput((s) => !s)}
-                >
-                  {showNewTypeInput ? 'Cancel' : 'Add Type'}
-                </button>
               </div>
-              {showNewTypeInput && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="New type (e.g., Verbal)"
-                    value={newTypeName}
-                    onChange={(e) => setNewTypeName(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="action-btn primary"
-                    onClick={async () => {
-                      const raw = (newTypeName || '').trim()
-                      if (!raw) return
-                      const key = raw.toLowerCase().replace(/\s+/g, '-')
-                      try {
-                        await createCategory(key, raw, user?.uid || null)
-                      } catch (err) {
-                        console.warn('createCategory failed, continuing locally', err)
-                      }
-                      if (!sectionOptions.find((s) => s.id === key)) {
-                        setSectionOptions((prev) => [...prev, { id: key, title: raw }])
-                      }
-                      setSectionType(key)
-                      setNewTypeName('')
-                      setShowNewTypeInput(false)
-                      syncAutoTestName(key, true)
-                    }}
-                  >
-                    Add
-                  </button>
-                </div>
-              )}
+              
             </div>
 
             <div className="form-row">
