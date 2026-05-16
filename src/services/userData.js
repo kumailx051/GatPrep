@@ -56,7 +56,7 @@ export async function createUserProfile(uid, email) {
 }
 
 // Categories helpers
-const getTopLevelCategoriesCollection = () => collection(db, 'categories')
+const getTopLevelCategoriesCollection = () => collection(db, 'testType')
 
 export async function createCategory(key, title, createdBy = null) {
   if (!key || !title) throw new Error('key and title required')
@@ -66,11 +66,18 @@ export async function createCategory(key, title, createdBy = null) {
     // Save under the user's subcollection so non-admin users can create their own types.
     const userRef = doc(db, 'users', createdBy, 'categories', key)
     await setDoc(userRef, payload, { merge: true })
+    // Best-effort: also create a top-level testType doc so it's discoverable globally.
+    try {
+      const topRef = doc(db, 'testType', key)
+      await setDoc(topRef, payload, { merge: true })
+    } catch (err) {
+      console.warn('Top-level testType write skipped:', err?.code || err?.message)
+    }
     return { id: key, ...payload }
   }
 
-  // Fallback: write to top-level categories (requires appropriate rules/admin)
-  const docRef = doc(db, 'categories', key)
+  // If no createdBy provided, write to top-level testType collection (requires rules/admin)
+  const docRef = doc(db, 'testType', key)
   await setDoc(docRef, payload, { merge: true })
   return { id: key, ...payload }
 }
