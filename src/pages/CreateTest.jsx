@@ -647,9 +647,11 @@ function CreateTest() {
         ]
 
         // Merge defaults with remote categories, keeping remote entries if ids collide
+        const safeDefaults = Array.isArray(defaultCats) ? defaultCats : []
+        const safeCats = Array.isArray(cats) ? cats : []
         const mergedMap = new Map()
-        defaultCats.forEach((c) => mergedMap.set(c.id, c))
-        (cats || []).forEach((c) => mergedMap.set(c.id, c))
+        safeDefaults.forEach((c) => mergedMap.set(c.id, c))
+        safeCats.forEach((c) => mergedMap.set(c.id, c))
         const merged = Array.from(mergedMap.values())
         console.log('[CreateTest] Final merged categories:', merged.map(c => c.id))
         if (merged.length) {
