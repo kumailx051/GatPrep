@@ -107,11 +107,11 @@ function CreateTest() {
     }
 
     // Check for separate option lines (e.g., "A) option" on separate line)
-    const optionCount = (rawText.match(/^\s*[A-Da-d][\)\.\s]+.+$/gm) || []).length
+    const optionCount = (rawText.match(/^\s*[A-Da-d][\)\.\-:]\s+.+$/gm) || []).length
     if (optionCount >= 4) return true
 
     // Check for inline options (e.g., "question? A) opt B) opt C) opt D) opt" on same line)
-    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\s]+/g
+    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\-:]\s+/g
     const hasInlineOptions = rawText.split('\n').some((line) => {
       const matches = [...line.matchAll(optionMarkerPattern)]
       return matches.length >= 4
@@ -123,8 +123,8 @@ function CreateTest() {
     const rawText = text.trim()
     if (!rawText) return text
 
-    const optionPattern = /^([A-Da-d])[\)\.\s]+(.+)/
-    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\s]+/g
+    const optionPattern = /^([A-Da-d])[\)\.\-:]\s+(.+)/
+    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\-:]\s+/g
 
     const parseInlineQuestionLine = (line) => {
       const matches = [...line.matchAll(optionMarkerPattern)]
