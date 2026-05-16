@@ -3,12 +3,12 @@ import { getAuth } from 'firebase/auth'
 import { initializeFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyD6LB_jGY8THtIxgkR546KLvjIZdKc2OCE',
-  authDomain: 'gat-test-79f4d.firebaseapp.com',
-  projectId: 'gat-test-79f4d',
-  storageBucket: 'gat-test-79f4d.firebasestorage.app',
-  messagingSenderId: '656665071237',
-  appId: '1:656665071237:web:a6fcaa997b6af83ff0e3ec',
+  apiKey: "AIzaSyAXPycR_lvIfk9ltx58OenL8-xozTRt01Q",
+  authDomain: "gat-test-1a91a.firebaseapp.com",
+  projectId: "gat-test-1a91a",
+  storageBucket: "gat-test-1a91a.firebasestorage.app",
+  messagingSenderId: "681074853606",
+  appId: "1:681074853606:web:d9f3560bbea56f535c9d27"
 }
 
 const app = initializeApp(firebaseConfig)
