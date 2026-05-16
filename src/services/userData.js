@@ -57,6 +57,7 @@ export async function createUserProfile(uid, email) {
 
 // Categories helpers
 const getTopLevelCategoriesCollection = () => collection(db, 'testType')
+const getPublicCategoriesCollection = () => collection(db, 'categories')
 
 export async function createCategory(key, title, createdBy = null) {
   if (!key || !title) throw new Error('key and title required')
@@ -85,13 +86,21 @@ export async function createCategory(key, title, createdBy = null) {
 export async function getCategories(userId = null) {
   try {
     const results = []
-    // Top-level categories (public)
+    // Top-level testType categories (public)
     try {
       const snapshot = await getDocs(getTopLevelCategoriesCollection())
       snapshot.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
     } catch (err) {
       // ignore top-level read failures (rules may restrict)
-      console.warn('Top-level categories read skipped:', err?.code || err?.message)
+      console.warn('Top-level testType categories read skipped:', err?.code || err?.message)
+    }
+
+    // Public categories collection (latest standard location)
+    try {
+      const snapshot = await getDocs(getPublicCategoriesCollection())
+      snapshot.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+    } catch (err) {
+      console.warn('Public categories read skipped:', err?.code || err?.message)
     }
 
     // User-specific categories
