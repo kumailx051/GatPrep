@@ -1,14 +1,17 @@
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getCategoryTests, getUserCompletedTests } from '../services/userData'
+import { getCategoryTests, getUserCompletedTests, getCategories, createCategory } from '../services/userData'
 
 function Test() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [completedTests, setCompletedTests] = useState({})
-  const [userTestCounts, setUserTestCounts] = useState({ english: 0, quantitative: 0, analytical: 0 })
-  const [totalTestCounts, setTotalTestCounts] = useState({ english: 0, quantitative: 0, analytical: 0 })
+  const [userTestCounts, setUserTestCounts] = useState({})
+  const [totalTestCounts, setTotalTestCounts] = useState({})
+  const [categories, setCategories] = useState([])
+  const [showAddType, setShowAddType] = useState(false)
+  const [newTypeTitle, setNewTypeTitle] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
   const normalizeCategory = (value) => (value || '').toString().trim().toLowerCase()
@@ -21,32 +24,37 @@ function Test() {
       }
 
       try {
-        // Resolve each request independently so one failing call doesn't block the page.
-        const [completedResult, englishResult, quantitativeResult, analyticalResult] = await Promise.allSettled([
+        const [completedResult, categoriesResult] = await Promise.allSettled([
           getUserCompletedTests(user.uid),
-          getCategoryTests(user.uid, 'english'),
-          getCategoryTests(user.uid, 'quantitative'),
-          getCategoryTests(user.uid, 'analytical'),
+          getCategories(),
         ])
 
         const remoteCompleted = completedResult.status === 'fulfilled' ? completedResult.value : {}
-        const englishTests = englishResult.status === 'fulfilled' ? englishResult.value : []
-        const quantitativeTests = quantitativeResult.status === 'fulfilled' ? quantitativeResult.value : []
-        const analyticalTests = analyticalResult.status === 'fulfilled' ? analyticalResult.value : []
+        const remoteCategories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : []
 
         setCompletedTests(remoteCompleted)
+        setCategories(remoteCategories.length ? remoteCategories : [
+          { id: 'english', title: 'English', description: 'Synonyms, Antonyms, Analogies & Sentence Completion' },
+          { id: 'quantitative', title: 'Quantitative', description: 'Arithmetic, Algebra, Geometry & Data Interpretation' },
+          { id: 'analytical', title: 'Analytical', description: 'Logical Reasoning, Patterns & Critical Thinking' },
+        ])
 
-        const allCounts = {
-          english: englishTests.length,
-          quantitative: quantitativeTests.length,
-          analytical: analyticalTests.length,
-        }
+        // For each category compute counts
+        const countsPromises = remoteCategories.map((cat) => getCategoryTests(user.uid, cat.id))
+        // also include defaults if remoteCategories empty
+        const useCats = remoteCategories.length ? remoteCategories : [
+          { id: 'english' }, { id: 'quantitative' }, { id: 'analytical' }
+        ]
 
-        const ownerCounts = {
-          english: englishTests.filter((test) => test.isUserTest).length,
-          quantitative: quantitativeTests.filter((test) => test.isUserTest).length,
-          analytical: analyticalTests.filter((test) => test.isUserTest).length,
-        }
+        const results = await Promise.allSettled(useCats.map((c) => getCategoryTests(user.uid, c.id)))
+        const allCounts = {}
+        const ownerCounts = {}
+        results.forEach((res, idx) => {
+          const id = useCats[idx].id
+          const tests = res.status === 'fulfilled' ? res.value : []
+          allCounts[id] = tests.length
+          ownerCounts[id] = tests.filter((t) => t.isUserTest).length
+        })
 
         setTotalTestCounts(allCounts)
         setUserTestCounts(ownerCounts)
@@ -59,39 +67,13 @@ function Test() {
   }, [user])
 
   const testCategories = [
-    {
-      id: 'english',
-      title: 'English',
-      description: 'Synonyms, Antonyms, Analogies & Sentence Completion',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-        </svg>
-      ),
-      totalTests: 0
-    },
-    {
-      id: 'quantitative',
-      title: 'Quantitative',
-      description: 'Arithmetic, Algebra, Geometry & Data Interpretation',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-        </svg>
-      ),
-      totalTests: 0
-    },
-    {
-      id: 'analytical',
-      title: 'Analytical',
-      description: 'Logical Reasoning, Patterns & Critical Thinking',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-        </svg>
-      ),
-      totalTests: 0
-    }
+    ...categories.map((c) => ({
+      id: c.id,
+      title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)),
+      description: c.description || '',
+      icon: null,
+      totalTests: totalTestCounts[c.id] || 0,
+    }))
   ]
 
   const getCompletedCount = (categoryId) => {
@@ -106,6 +88,23 @@ function Test() {
     navigate(`/test/${categoryId}`)
   }
 
+  const handleCreateCategory = async () => {
+    const raw = (newTypeTitle || '').trim()
+    if (!raw) return
+    const key = raw.toLowerCase().replace(/\s+/g, '-')
+    try {
+      await createCategory(key, raw, user?.uid || null)
+      setNewTypeTitle('')
+      setShowAddType(false)
+      // reload categories
+      const remote = await getCategories()
+      setCategories(remote)
+    } catch (err) {
+      console.error('Failed to create category:', err)
+      alert('Failed to create category. See console for details.')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="page-loader">
@@ -118,7 +117,26 @@ function Test() {
     <div className="test-container">
       <div className="page-header">
         <h1 className="page-title">Mock Tests</h1>
-        <p className="page-description">Select a category to view available tests</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <p className="page-description" style={{ margin: 0 }}>Select a category to view available tests</p>
+          <div style={{ marginLeft: 12 }}>
+            <button className="action-btn primary" onClick={() => setShowAddType((s) => !s)}>
+              {showAddType ? 'Close' : 'Add Type'}
+            </button>
+          </div>
+        </div>
+        {showAddType && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="New test type e.g., Verbal Reasoning"
+              value={newTypeTitle}
+              onChange={(e) => setNewTypeTitle(e.target.value)}
+            />
+            <button className="action-btn primary" onClick={handleCreateCategory}>Create</button>
+          </div>
+        )}
       </div>
 
       <div className="test-categories">

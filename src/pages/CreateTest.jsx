@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUserCustomTestsByCategory, saveUserCustomTest } from '../services/userData'
+import { getUserCustomTestsByCategory, saveUserCustomTest, getCategories, createCategory } from '../services/userData'
 
 function CreateTest() {
   const navigate = useNavigate()
@@ -18,9 +18,9 @@ function CreateTest() {
   const [answerKey, setAnswerKey] = useState('')
   const [sectionType, setSectionType] = useState('english')
   const [sectionOptions, setSectionOptions] = useState([
-    'english',
-    'quantitative',
-    'analytical',
+    { id: 'english', title: 'English' },
+    { id: 'quantitative', title: 'Quantitative' },
+    { id: 'analytical', title: 'Analytical' },
   ])
   const [showNewTypeInput, setShowNewTypeInput] = useState(false)
   const [newTypeName, setNewTypeName] = useState('')
@@ -517,6 +517,28 @@ function CreateTest() {
     syncAutoTestName(sectionType, false)
   }, [sectionType, user])
 
+  // Load categories from Firestore so dropdown reflects saved types
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const cats = await getCategories()
+        if (!mounted) return
+        if (cats && cats.length) {
+          setSectionOptions(cats.map((c) => ({ id: c.id, title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)) })))
+          // Ensure current sectionType exists in options
+          if (!cats.find((c) => c.id === sectionType)) {
+            setSectionType(cats[0].id)
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+    load()
+    return () => { mounted = false }
+  }, [user])
+
   return (
     <div className="create-test-container">
       <div className="page-header">
@@ -576,11 +598,11 @@ function CreateTest() {
                   value={sectionType}
                   onChange={(e) => handleSectionChange(e.target.value)}
                 >
-                  {sectionOptions.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                    </option>
-                  ))}
+                    {sectionOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.title || (opt.id.charAt(0).toUpperCase() + opt.id.slice(1))}
+                      </option>
+                    ))}
                 </select>
                 <button
                   type="button"
@@ -602,12 +624,17 @@ function CreateTest() {
                   <button
                     type="button"
                     className="action-btn primary"
-                    onClick={() => {
+                    onClick={async () => {
                       const raw = (newTypeName || '').trim()
                       if (!raw) return
                       const key = raw.toLowerCase().replace(/\s+/g, '-')
-                      if (!sectionOptions.includes(key)) {
-                        setSectionOptions((prev) => [...prev, key])
+                      try {
+                        await createCategory(key, raw, user?.uid || null)
+                      } catch (err) {
+                        console.warn('createCategory failed, continuing locally', err)
+                      }
+                      if (!sectionOptions.find((s) => s.id === key)) {
+                        setSectionOptions((prev) => [...prev, { id: key, title: raw }])
                       }
                       setSectionType(key)
                       setNewTypeName('')

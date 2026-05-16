@@ -55,6 +55,27 @@ export async function createUserProfile(uid, email) {
   }
 }
 
+// Categories helpers
+const getCategoriesCollection = () => collection(db, 'categories')
+
+export async function createCategory(key, title, createdBy = null) {
+  if (!key || !title) throw new Error('key and title required')
+  const docRef = doc(db, 'categories', key)
+  const payload = { title, createdBy: createdBy || null, createdAt: serverTimestamp() }
+  await setDoc(docRef, payload, { merge: true })
+  return { id: key, ...payload }
+}
+
+export async function getCategories() {
+  try {
+    const snapshot = await getDocs(getCategoriesCollection())
+    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+  } catch (error) {
+    console.warn('Failed to fetch categories:', error)
+    return []
+  }
+}
+
 export async function getUserCustomTests(uid) {
   // Fetch from both sources and merge, deduplicating by ID.
   const testMap = new Map()
