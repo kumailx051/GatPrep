@@ -12,6 +12,7 @@ function Test() {
   const [categories, setCategories] = useState([])
   const [showAddType, setShowAddType] = useState(false)
   const [newTypeTitle, setNewTypeTitle] = useState('')
+  const [message, setMessage] = useState({ type: '', text: '' })
   const [isLoading, setIsLoading] = useState(true)
 
   const normalizeCategory = (value) => (value || '').toString().trim().toLowerCase()
@@ -33,16 +34,22 @@ function Test() {
         const remoteCategories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : []
 
         setCompletedTests(remoteCompleted)
-        setCategories(remoteCategories.length ? remoteCategories : [
+
+        const defaultCats = [
           { id: 'english', title: 'English', description: 'Synonyms, Antonyms, Analogies & Sentence Completion' },
           { id: 'quantitative', title: 'Quantitative', description: 'Arithmetic, Algebra, Geometry & Data Interpretation' },
           { id: 'analytical', title: 'Analytical', description: 'Logical Reasoning, Patterns & Critical Thinking' },
-        ])
+        ]
 
-        // For each category compute counts
-        const countsPromises = remoteCategories.map((cat) => getCategoryTests(user.uid, cat.id))
-        // also include defaults if remoteCategories empty
-        const useCats = remoteCategories.length ? remoteCategories : [
+        // Merge defaults with remote categories, keeping remote entries if ids collide
+        const mergedMap = new Map()
+        defaultCats.forEach((c) => mergedMap.set(c.id, c))
+        remoteCategories.forEach((c) => mergedMap.set(c.id, c))
+        const merged = Array.from(mergedMap.values())
+        setCategories(merged)
+
+        // For each merged category compute counts
+        const useCats = merged.length ? merged : [
           { id: 'english' }, { id: 'quantitative' }, { id: 'analytical' }
         ]
 
@@ -90,18 +97,30 @@ function Test() {
 
   const handleCreateCategory = async () => {
     const raw = (newTypeTitle || '').trim()
-    if (!raw) return
+    setMessage({ type: '', text: '' })
+    if (!raw) {
+      setMessage({ type: 'error', text: 'Enter a name for the test type.' })
+      return
+    }
+    if (!user) {
+      setMessage({ type: 'error', text: 'You must be logged in to create a test type.' })
+      return
+    }
+
     const key = raw.toLowerCase().replace(/\s+/g, '-')
     try {
-      await createCategory(key, raw, user?.uid || null)
+      await createCategory(key, raw, user.uid)
       setNewTypeTitle('')
       setShowAddType(false)
       // reload categories
-      const remote = await getCategories()
+      const remote = await getCategories(user.uid)
       setCategories(remote)
+      setMessage({ type: 'success', text: `Type "${raw}" created.` })
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
     } catch (err) {
       console.error('Failed to create category:', err)
-      alert('Failed to create category. See console for details.')
+      const detail = err?.code || err?.message || String(err)
+      setMessage({ type: 'error', text: `Failed to create category: ${detail}` })
     }
   }
 
@@ -126,7 +145,7 @@ function Test() {
           </div>
         </div>
         {showAddType && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               type="text"
               className="form-input"
@@ -135,6 +154,11 @@ function Test() {
               onChange={(e) => setNewTypeTitle(e.target.value)}
             />
             <button className="action-btn primary" onClick={handleCreateCategory}>Create</button>
+            {message.text && (
+              <div style={{ marginLeft: 12 }} className={`alert ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
+                {message.text}
+              </div>
+            )}
           </div>
         )}
       </div>

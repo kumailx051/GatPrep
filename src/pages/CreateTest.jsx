@@ -522,11 +522,20 @@ function CreateTest() {
       try {
         const cats = await getCategories(user?.uid)
         if (!mounted) return
-        if (cats && cats.length) {
-          setSectionOptions(cats.map((c) => ({ id: c.id, title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)) })))
-          // Ensure current sectionType exists in options
-          if (!cats.find((c) => c.id === sectionType)) {
-            setSectionType(cats[0].id)
+        const defaultCats = [
+          { id: 'english', title: 'English' },
+          { id: 'quantitative', title: 'Quantitative' },
+          { id: 'analytical', title: 'Analytical' },
+        ]
+
+        const mergedMap = new Map()
+        defaultCats.forEach((c) => mergedMap.set(c.id, c))
+        (cats || []).forEach((c) => mergedMap.set(c.id, { id: c.id, title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)) }))
+        const merged = Array.from(mergedMap.values())
+        if (merged.length) {
+          setSectionOptions(merged)
+          if (!merged.find((c) => c.id === sectionType)) {
+            setSectionType(merged[0].id)
           }
         }
       } catch (err) {
