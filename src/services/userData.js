@@ -89,7 +89,10 @@ export async function getCategories(userId = null) {
     // Top-level testType categories (public)
     try {
       const snapshot = await getDocs(getTopLevelCategoriesCollection())
-      snapshot.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+      snapshot.docs.forEach((d) => {
+        results.push({ id: d.id, ...d.data() })
+      })
+      console.log('[getCategories] Fetched from testType:', results)
     } catch (err) {
       // ignore top-level read failures (rules may restrict)
       console.warn('Top-level testType categories read skipped:', err?.code || err?.message)
@@ -98,7 +101,10 @@ export async function getCategories(userId = null) {
     // Public categories collection (latest standard location)
     try {
       const snapshot = await getDocs(getPublicCategoriesCollection())
-      snapshot.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+      snapshot.docs.forEach((d) => {
+        results.push({ id: d.id, ...d.data() })
+      })
+      console.log('[getCategories] Fetched from categories:', snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
     } catch (err) {
       console.warn('Public categories read skipped:', err?.code || err?.message)
     }
@@ -107,7 +113,10 @@ export async function getCategories(userId = null) {
     if (userId) {
       try {
         const userCatsSnap = await getDocs(collection(db, 'users', userId, 'categories'))
-        userCatsSnap.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+        userCatsSnap.docs.forEach((d) => {
+          results.push({ id: d.id, ...d.data() })
+        })
+        console.log('[getCategories] Fetched from user categories:', userCatsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       } catch (err) {
         console.warn('Failed to read user categories:', err?.code || err?.message)
       }
@@ -116,7 +125,9 @@ export async function getCategories(userId = null) {
     // Deduplicate by id, keeping user-specific override last
     const map = new Map()
     results.forEach((r) => map.set(r.id, r))
-    return Array.from(map.values())
+    const finalResults = Array.from(map.values())
+    console.log('[getCategories] Final deduplicated results:', finalResults)
+    return finalResults
   } catch (error) {
     console.warn('Failed to fetch categories:', error)
     return []

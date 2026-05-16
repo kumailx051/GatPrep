@@ -636,6 +636,7 @@ function CreateTest() {
     const load = async () => {
       try {
         const cats = await getCategories(user?.uid)
+        console.log('[CreateTest] Fetched categories:', cats)
         if (!mounted) return
         const defaultCats = [
           { id: 'english', title: 'English' },
@@ -647,6 +648,7 @@ function CreateTest() {
         defaultCats.forEach((c) => mergedMap.set(c.id, c))
         (cats || []).forEach((c) => mergedMap.set(c.id, { id: c.id, title: c.title || (c.id.charAt(0).toUpperCase() + c.id.slice(1)) }))
         const merged = Array.from(mergedMap.values())
+        console.log('[CreateTest] Merged categories:', merged)
         if (merged.length) {
           setSectionOptions(merged)
           if (!merged.find((c) => c.id === sectionType)) {
@@ -654,7 +656,7 @@ function CreateTest() {
           }
         }
       } catch (err) {
-        // ignore
+        console.error('[CreateTest] Failed to load categories:', err)
       }
     }
     load()
