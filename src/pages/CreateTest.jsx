@@ -37,7 +37,7 @@ function CreateTest() {
 
     const chunks = cleaned
       .split('\n')
-      .flatMap((line) => line.split(','))
+      .flatMap((line) => line.split(/[\s,]+/))
       .map((entry) => entry.trim())
       .filter(Boolean)
 
@@ -91,8 +91,10 @@ function CreateTest() {
   const shouldFormatAnswerKeyText = (text) => {
     const entries = parseAnswerEntries(text)
     if (!entries.length) return false
-    // If every entry already has an explicit number, keep it as-is.
-    return !entries.every((entry) => entry.number !== null)
+    // Format if answer key has multiple entries on same line (inline format)
+    // or if entries are not properly formatted
+    const lineCount = text.trim().split('\n').length
+    return entries.length > lineCount
   }
 
   const shouldFormatMcqText = (text) => {
@@ -104,9 +106,17 @@ function CreateTest() {
       return false
     }
 
-    // Only format when the text looks like at least one MCQ block.
+    // Check for separate option lines (e.g., "A) option" on separate line)
     const optionCount = (rawText.match(/^\s*[A-Da-d][\)\.\s]+.+$/gm) || []).length
-    return optionCount >= 4
+    if (optionCount >= 4) return true
+
+    // Check for inline options (e.g., "question? A) opt B) opt C) opt D) opt" on same line)
+    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\s]+/g
+    const hasInlineOptions = rawText.split('\n').some((line) => {
+      const matches = [...line.matchAll(optionMarkerPattern)]
+      return matches.length >= 4
+    })
+    return hasInlineOptions
   }
 
   const formatMcqTextWithNumbers = (text) => {
@@ -120,66 +130,77 @@ function CreateTest() {
       const matches = [...line.matchAll(optionMarkerPattern)]
       if (matches.length < 4) return null
 
-      const optionStarts = matches.slice(0, 4).map((match) => match.index + match[1].length)
-      if (optionStarts.length < 4) return null
+      const markers = matches.slice(0, 4)
+      const questionText = line.slice(0, markers[0].index).trim().replace(/[\s:,-]+$/, '')
+      if (!questionText) return null
 
-      const questionText = line.slice(0, optionStarts[0]).trim().replace(/[\s:,-]+$/, '')
-      const options = optionStarts.map((startIndex, index) => {
-        const currentMatch = matches[index]
-        const nextStart = index < optionStarts.length - 1 ? optionStarts[index + 1] : line.length
-        const optionText = line.slice(currentMatch.index + currentMatch[0].length, nextStart).trim()
+      const options = markers.map((marker, index) => {
+        const optionStart = marker.index + marker[0].length
+        const nextMarker = markers[index + 1]
+        const optionEnd = nextMarker ? nextMarker.index : line.length
+        const optionText = line.slice(optionStart, optionEnd).trim().replace(/[\s:,-]+$/, '')
         return optionText
       })
 
-      if (!questionText || options.some((option) => !option)) return null
+      if (options.some((option) => !option)) return null
       return { questionText, options }
     }
 
-    const blocks = rawText
-      .split(/\n\s*\n+/)
-      .map((block) => block.trim())
-      .filter(Boolean)
+    const isOptionLine = (line) => optionPattern.test(line.trim())
 
-    if (!blocks.length) return text
+    const lines = rawText.split('\n')
+    const formattedLines = []
+    let questionNumber = 1
 
-    const formattedBlocks = blocks.map((block, index) => {
-      const lines = block.split('\n').map((line) => line.trim()).filter(Boolean)
-      const optionStartIndex = lines.findIndex((line) => optionPattern.test(line))
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const trimmed = line.trim()
+      if (!trimmed) {
+        formattedLines.push('')
+        continue
+      }
 
-      if (optionStartIndex <= 0) {
-        const inlineParsed = parseInlineQuestionLine(lines[0])
-        if (!inlineParsed) {
-          return block
+      const inlineParsed = parseInlineQuestionLine(trimmed)
+      if (!inlineParsed) {
+        if (isOptionLine(trimmed)) {
+          const match = trimmed.match(optionPattern)
+          const letter = match[1].toUpperCase()
+          const optionText = match[2].trim()
+          formattedLines.push(`${letter}) ${optionText}`)
+          continue
         }
 
-        return `${index + 1}. ${inlineParsed.questionText}\n${inlineParsed.options.map((optionText, optionIndex) => `${String.fromCharCode(65 + optionIndex)}) ${optionText}`).join('\n')}`
+        const nextLines = lines.slice(i + 1, i + 5).map((nextLine) => nextLine.trim()).filter(Boolean)
+        const sequentialOptions = nextLines.length === 4 && nextLines.every((nextLine) => isOptionLine(nextLine))
+        if (sequentialOptions) {
+          const numberedMatch = trimmed.match(/^\d+[\.\)\s]+(.+)/)
+          const questionText = numberedMatch ? numberedMatch[1].trim() : trimmed
+          formattedLines.push(`${questionNumber}. ${questionText}`)
+          nextLines.forEach((optionLine) => {
+            const match = optionLine.match(optionPattern)
+            const letter = match[1].toUpperCase()
+            const optionText = match[2].trim()
+            formattedLines.push(`${letter}) ${optionText}`)
+          })
+          formattedLines.push('')
+          questionNumber += 1
+          i += 4
+          continue
+        }
+
+        formattedLines.push(trimmed)
+        continue
       }
 
-      const inlineParsed = parseInlineQuestionLine(lines.slice(optionStartIndex).join(' '))
-      if (inlineParsed) {
-        return `${index + 1}. ${inlineParsed.questionText}\n${inlineParsed.options.map((optionText, optionIndex) => `${String.fromCharCode(65 + optionIndex)}) ${optionText}`).join('\n')}`
-      }
-
-      const optionLines = lines.slice(optionStartIndex).filter((line) => optionPattern.test(line))
-      if (optionLines.length !== 4) {
-        return block
-      }
-
-      const questionTextRaw = lines.slice(0, optionStartIndex).join(' ').trim()
-      const numberedQuestionMatch = questionTextRaw.match(/^(\d+)[\.\)\s]+(.+)/)
-      const questionText = numberedQuestionMatch ? numberedQuestionMatch[2].trim() : questionTextRaw
-
-      const normalizedOptions = optionLines.map((line) => {
-        const match = line.match(optionPattern)
-        const letter = match[1].toUpperCase()
-        const optionText = match[2].trim()
-        return `${letter}) ${optionText}`
+      formattedLines.push(`${questionNumber}. ${inlineParsed.questionText}`)
+      inlineParsed.options.forEach((optionText, optionIndex) => {
+        formattedLines.push(`${String.fromCharCode(65 + optionIndex)}) ${optionText}`)
       })
+      formattedLines.push('')
+      questionNumber += 1
+    }
 
-      return `${index + 1}. ${questionText}\n${normalizedOptions.join('\n')}`
-    })
-
-    return formattedBlocks.join('\n\n')
+    return formattedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
   }
 
   const getSectionDisplayName = (section) => {
@@ -299,53 +320,45 @@ function CreateTest() {
 
     console.log('After first pass:', questions.length, 'questions')
 
-    // Fallback for pasted blocks without visible numbering at the start of each block.
+    // Fallback for pasted MCQs written as consecutive question + 4 option lines.
     if (questions.length === 0) {
-      console.log('Trying fallback block parsing...')
-      const blocks = rawText
-        .split(/\n\s*\n+/)
-        .map((block) => block.trim())
-        .filter(Boolean)
+      console.log('Trying sequential fallback parsing...')
 
-      console.log('Found blocks:', blocks.length)
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const questionMatch = line.match(/^(\d+)[\.\)\s]+(.+)/)
+        const questionText = questionMatch ? questionMatch[2].trim() : line
 
-      blocks.forEach((block, index) => {
-        const blockLines = block.split('\n').map((line) => line.trim()).filter(Boolean)
-        const optionLines = blockLines.filter((line) => optionPattern.test(line))
-
-        if (optionLines.length !== 4) {
-          console.log(`Block ${index} skipped: ${optionLines.length} option lines (expected 4)`)
-          return
+        if (optionPattern.test(line)) {
+          continue
         }
 
-        const optionStartIndex = blockLines.findIndex((line) => optionPattern.test(line))
-        if (optionStartIndex <= 0) {
-          console.log(`Block ${index} skipped: no question line before options`)
-          return
+        const optionBlock = lines.slice(i + 1, i + 5)
+        if (optionBlock.length < 4 || !optionBlock.every((optionLine) => optionPattern.test(optionLine))) {
+          continue
         }
 
-        const questionTextRaw = blockLines.slice(0, optionStartIndex).join(' ').trim()
-        const numberedQuestionMatch = questionTextRaw.match(/^(\d+)[\.\)\s]+(.+)/)
-        const questionText = numberedQuestionMatch ? numberedQuestionMatch[2].trim() : questionTextRaw
-
+        const parsedOptions = optionBlock.map((optionLine) => optionLine.match(optionPattern)[2].trim())
+        const questionId = questions.length + 1
         const question = {
-          id: index + 1,
+          id: questionId,
           question: questionText,
-          options: optionLines.map((line) => line.match(optionPattern)[2].trim()),
+          options: parsedOptions,
           correct: 0,
           part: detectSection(questionText),
         }
 
-        const correctLetter = answerMap[index + 1]
+        const correctLetter = answerMap[questionId]
         if (correctLetter) {
           question.correct = correctLetter.charCodeAt(0) - 65
         }
 
         questions.push(question)
-        console.log('Fallback parsed question:', index + 1)
-      })
-      
-      console.log('After fallback:', questions.length, 'questions')
+        console.log('Sequential fallback parsed question:', questionId)
+        i += 4
+      }
+
+      console.log('After sequential fallback:', questions.length, 'questions')
     }
 
     console.log('=== FINAL RESULT ===')
@@ -529,25 +542,43 @@ function CreateTest() {
   }
 
   const handleMcqBlur = () => {
+    return
+  }
+
+  const handleFormatMcqs = () => {
     if (!shouldFormatMcqText(mcqText)) {
+      setError('Paste MCQs in inline format with 4 options per question, then click Format MCQs.')
       return
     }
-    if (mcqText === lastFormattedValueRef.current) {
+    if (mcqText === lastFormattedValueRef.current && answerKey === lastFormattedAnswerValueRef.current) {
       return
     }
 
     const sourceText = mcqText
+    const sourceAnswerKey = answerKey
     const startedAt = Date.now()
+    setError('')
     setIsNumbering(true)
 
     // Defer heavy formatting so the loading bar can paint first.
     requestAnimationFrame(() => {
       setTimeout(() => {
+        // Format MCQs
         const formatted = formatMcqTextWithNumbers(sourceText)
         if (formatted !== sourceText) {
           lastFormattedValueRef.current = formatted
           setMcqText(formatted)
         }
+        
+        // Also format answer key if it needs formatting
+        if (shouldFormatAnswerKeyText(sourceAnswerKey)) {
+          const formattedAnswerKey = formatAnswerKeyWithNumbers(sourceAnswerKey)
+          if (formattedAnswerKey !== sourceAnswerKey) {
+            lastFormattedAnswerValueRef.current = formattedAnswerKey
+            setAnswerKey(formattedAnswerKey)
+          }
+        }
+        
         const elapsed = Date.now() - startedAt
         const minimumVisibleMs = 600
         const remaining = Math.max(0, minimumVisibleMs - elapsed)
@@ -728,29 +759,11 @@ C) A = C
 D) None`}
                   value={mcqText}
                   onChange={(e) => setMcqText(e.target.value)}
-                  onBlur={handleMcqBlur}
                 />
                 <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                   <button type="button" className="action-btn secondary" onClick={handlePreviewSplit}>Preview / Split</button>
                   <button type="button" className="action-btn" onClick={() => { setParsedQuestions([]); setMcqText(''); setAnswerKey('') }}>Clear</button>
-                </div>
-                {/* Compact copyable format for small screens / quick access */}
-                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <div style={{ flex: 1, background: '#fbf8ff', padding: 10, borderRadius: 8, border: '1px solid #f0e0ff' }}>
-                    <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Quick MCQ format (tap Copy):</div>
-                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.2 }}>1. Question text? A) Option A B) Option B C) Option C D) Option D</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="action-btn secondary"
-                    onClick={() => {
-                      const short = `1. Question text?\nA) Option A\nB) Option B\nC) Option C\nD) Option D\n\nAnswer Key:\n1-A`;
-                      navigator.clipboard.writeText(short)
-                      alert('Compact MCQ format copied to clipboard!')
-                    }}
-                  >
-                    Copy Format
-                  </button>
+                  <button type="button" className="action-btn secondary" onClick={handleFormatMcqs}>Format MCQs</button>
                 </div>
               </div>
 
@@ -836,7 +849,7 @@ D) None`}
         <div className="ai-prompt-section">
         <div className="ai-prompt-header">
           <h3>🤖 AI Prompt Template</h3>
-          <p>Copy this prompt and use it with ChatGPT, Claude, or any AI to generate MCQs in the correct format</p>
+          <p>Use this prompt with ChatGPT, Claude, or any AI to generate MCQs in the correct format</p>
         </div>
         <div className="ai-prompt-box">
           <pre>{`Generate [NUMBER] MCQs for GAT [SECTION] preparation.
@@ -978,11 +991,48 @@ Do NOT output anything else.`}</pre>
               <button
                 className="copy-prompt-btn"
                 onClick={() => {
-                  const detailed = `Use this detailed format when generating MCQs with an AI. Be strict with numbering, option letters, and the final answer key.\n\nGuidelines:\n- Create exactly [NUMBER] questions for the requested [SECTION].\n- Each question must include exactly four options labeled A) B) C) D).\n- Do NOT include any explanations, footnotes, or extra commentary.\n- Use exam-style language and vary difficulty across questions.\n- Keep questions self-contained; do not reference external passages.\n\nStrict Output Example (exact formatting required):\n\n1. A man invests $1000 at 5% simple interest per annum. What is the interest earned in 2 years?\nA) $100\nB) $150\nC) $200\nD) $250\n\n2. Choose the synonym of 'aberration' in the following options.\nA) Normality\nB) Anomaly\nC) Routine\nD) Regularity\n\nAnswer Key:\n1-C\n2-B\n\nAnswer Key Rules:\n- Provide the final answer key after all questions exactly in the form shown above: one entry per line using 'number-letter' (e.g., 1-A).\n- Letters must be uppercase A-D.\n\nDeliverable Requirements:\n- Start the response with the numbered questions only.\n- After completing all questions, append the 'Answer Key:' section with each mapping on a new line.\n\nDo NOT output anything else.`;
-                  navigator.clipboard.writeText(detailed)
-                  alert('Detailed MCQ format copied to clipboard!')
+                  const detailedPrompt = `Use this detailed format when generating MCQs with an AI. Be strict with numbering, option letters, and the final answer key.
+
+Guidelines:
+- Create exactly [NUMBER] questions for the requested [SECTION].
+- Each question must include exactly four options labeled A) B) C) D).
+- Do NOT include any explanations, footnotes, or extra commentary.
+- Use exam-style language and vary difficulty across questions.
+- Keep questions self-contained; do not reference external passages.
+
+Strict Output Example (exact formatting required):
+
+1. A man invests $1000 at 5% simple interest per annum. What is the interest earned in 2 years?
+A) $100
+B) $150
+C) $200
+D) $250
+
+2. Choose the synonym of 'aberration' in the following options.
+A) Normality
+B) Anomaly
+C) Routine
+D) Regularity
+
+Answer Key:
+1-C
+2-B
+
+Answer Key Rules:
+- Provide the final answer key after all questions exactly in the form shown above: one entry per line using 'number-letter' (e.g., 1-A).
+- Letters must be uppercase A-D.
+
+Deliverable Requirements:
+- Start the response with the numbered questions only.
+- After completing all questions, append the 'Answer Key:' section with each mapping on a new line.
+
+Do NOT output anything else.`
+                  navigator.clipboard.writeText(detailedPrompt)
+                  alert('Detailed prompt copied to clipboard!')
                 }}
-              >Copy Detailed Format</button>
+              >
+                Copy Detailed Format
+              </button>
             </div>
           </div>
         </div>
