@@ -56,13 +56,11 @@ function CreateTest() {
     })
 
     return entries
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #eee' }}>
+            <h4 style={{ margin: '0 0 8px 0' }}>General MCQ Format (Detailed)</h4>
+            <pre style={{ maxHeight: 220, overflow: 'auto', padding: 10, background: '#fff', borderRadius: 6, border: '1px solid #f2f0f8' }}>{`Use this detailed format when generating MCQs with an AI. Be strict with numbering, option letters, and the final answer key.
   }
 
-  const formatAnswerKeyWithNumbers = (text) => {
-    const entries = parseAnswerEntries(text)
-    if (!entries.length) return text
-
-    const usedNumbers = new Set(entries.filter((entry) => entry.number !== null).map((entry) => entry.number))
     let nextNumber = usedNumbers.size ? Math.max(...usedNumbers) + 1 : 1
 
     const normalized = entries.map((entry, index) => {
@@ -83,14 +81,21 @@ function CreateTest() {
     const hasExplicitNumbers = entries.some((entry) => entry.number !== null)
     if (!hasExplicitNumbers) {
       return entries.map((entry, index) => `${index + 1}-${entry.letter}`).join('\n')
-    }
-
     return normalized.join('\n')
   }
-
-  const shouldFormatAnswerKeyText = (text) => {
     const entries = parseAnswerEntries(text)
     if (!entries.length) return false
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="copy-prompt-btn"
+                onClick={() => {
+                  const detailed = `Use this detailed format when generating MCQs with an AI. Be strict with numbering, option letters, and the final answer key.\n\nGuidelines:\n- Create exactly [NUMBER] questions for the requested [SECTION].\n- Each question must include exactly four options labeled A) B) C) D).\n- Do NOT include any explanations, footnotes, or extra commentary.\n- Use exam-style language and vary difficulty across questions.\n- Keep questions self-contained; do not reference external passages.\n\nStrict Output Example (exact formatting required):\n\n1. A man invests $1000 at 5% simple interest per annum. What is the interest earned in 2 years?\nA) $100\nB) $150\nC) $200\nD) $250\n\n2. Choose the synonym of 'aberration' in the following options.\nA) Normality\nB) Anomaly\nC) Routine\nD) Regularity\n\nAnswer Key:\n1-C\n2-B\n\nAnswer Key Rules:\n- Provide the final answer key after all questions exactly in the form shown above: one entry per line using 'number-letter' (e.g., 1-A).\n- Letters must be uppercase A-D.\n\nDeliverable Requirements:\n- Start the response with the numbered questions only.\n- After completing all questions, append the 'Answer Key:' section with each mapping on a new line.\n\nDo NOT output anything else.`;
+                  navigator.clipboard.writeText(detailed)
+                  alert('Detailed MCQ format copied to clipboard!')
+                }}
+              >Copy Detailed Format</button>
+            </div>
+          </div>
     // If every entry already has an explicit number, keep it as-is.
     return !entries.every((entry) => entry.number !== null)
   }
