@@ -26,6 +26,7 @@ function CreateTest() {
   // Test name
   const [testName, setTestName] = useState('')
   const [autoTestName, setAutoTestName] = useState('')
+  const [parsedQuestions, setParsedQuestions] = useState([])
   const lastFormattedValueRef = useRef('')
   const lastFormattedAnswerValueRef = useRef('')
   const testNameOverrideRef = useRef(false)
@@ -321,6 +322,58 @@ function CreateTest() {
     return questions
   }
 
+  const handlePreviewSplit = () => {
+    setError('')
+    setSuccess('')
+    try {
+      const questions = parseMCQs(mcqText, answerKey)
+      if (!questions || !questions.length) {
+        setError('Could not parse any questions. Please check format.')
+        return
+      }
+      // Normalize options as array of 4 strings and ensure fields
+      const normalized = questions.map((q, idx) => ({
+        id: q.id || idx + 1,
+        question: q.question || '',
+        options: Array.isArray(q.options) ? q.options.slice(0, 4).concat(Array(4 - (q.options || []).length).fill('')) : ['', '', '', ''],
+        correct: Number.isInteger(q.correct) ? q.correct : 0,
+        part: q.part || ''
+      }))
+      setParsedQuestions(normalized)
+    } catch (err) {
+      console.error('Preview parse failed:', err)
+      setError('Failed to parse MCQs. See console for details.')
+    }
+  }
+
+  const updateParsedQuestion = (index, field, value) => {
+    setParsedQuestions((prev) => {
+      const copy = prev.map((p) => ({ ...p }))
+      if (!copy[index]) return prev
+      if (field === 'question') copy[index].question = value
+      if (field === 'part') copy[index].part = value
+      return copy
+    })
+  }
+
+  const updateParsedOption = (qIndex, optIndex, value) => {
+    setParsedQuestions((prev) => {
+      const copy = prev.map((p) => ({ ...p, options: [...p.options] }))
+      if (!copy[qIndex]) return prev
+      copy[qIndex].options[optIndex] = value
+      return copy
+    })
+  }
+
+  const updateParsedCorrect = (qIndex, value) => {
+    setParsedQuestions((prev) => {
+      const copy = prev.map((p) => ({ ...p }))
+      if (!copy[qIndex]) return prev
+      copy[qIndex].correct = Number(value)
+      return copy
+    })
+  }
+
   const detectSection = (text) => {
     const lowerText = text.toLowerCase()
     
@@ -374,7 +427,7 @@ function CreateTest() {
       console.log('MCQ text length:', mcqText.length)
       console.log('Answer key length:', answerKey.length)
       
-      const questions = parseMCQs(mcqText, answerKey)
+      const questions = parsedQuestions.length ? parsedQuestions.map((q) => ({ id: q.id, question: q.question, options: q.options, correct: q.correct, part: q.part })) : parseMCQs(mcqText, answerKey)
       console.log('Parsed questions:', questions.length)
       if (questions.length > 0) {
         console.log('First question:', questions[0])
@@ -402,7 +455,7 @@ function CreateTest() {
         id: `custom-${Date.now()}`,
         name: testName,
         category: targetCategory,
-        questions: questions,
+        questions: questions.map((q, idx) => ({ id: `q-${idx+1}`, question: q.question, options: q.options, correct: q.correct })),
         createdAt: new Date().toISOString(),
         questionCount: questions.length,
       }
@@ -646,6 +699,10 @@ D) None`}
                   onChange={(e) => setMcqText(e.target.value)}
                   onBlur={handleMcqBlur}
                 />
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <button type="button" className="action-btn secondary" onClick={handlePreviewSplit}>Preview / Split</button>
+                  <button type="button" className="action-btn" onClick={() => { setParsedQuestions([]); setMcqText(''); setAnswerKey('') }}>Clear</button>
+                </div>
               </div>
 
               <div className="form-group flex-1">
@@ -674,6 +731,36 @@ D) None`}
                 />
               </div>
             </div>
+
+            {parsedQuestions.length > 0 && (
+              <div className="parsed-questions-preview">
+                <h4>Preview / Edit Parsed Questions</h4>
+                {parsedQuestions.map((q, idx) => (
+                  <div key={q.id} className="parsed-question-block">
+                    <label className="form-label">{idx + 1}. Question</label>
+                    <textarea className="form-textarea" rows={3} value={q.question} onChange={(e) => updateParsedQuestion(idx, 'question', e.target.value)} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {q.options.map((opt, oi) => (
+                        <div key={oi}>
+                          <label className="form-label">Option {String.fromCharCode(65 + oi)}</label>
+                          <input className="form-input" value={opt} onChange={(e) => updateParsedOption(idx, oi, e.target.value)} />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <label className="form-label">Correct Answer</label>
+                      <select value={q.correct} onChange={(e) => updateParsedCorrect(idx, e.target.value)} className="form-select">
+                        <option value={0}>A</option>
+                        <option value={1}>B</option>
+                        <option value={2}>C</option>
+                        <option value={3}>D</option>
+                      </select>
+                    </div>
+                    <hr />
+                  </div>
+                ))}
+              </div>
+            )}
 
             <button
               className="create-btn"
