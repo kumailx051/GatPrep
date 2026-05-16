@@ -5,6 +5,7 @@ import {
   sendEmailVerification,
   signOut,
   signInWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
 } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from '../context/AuthContext'
@@ -19,6 +20,7 @@ function Auth() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
+  const [showResend, setShowResend] = useState(false)
 
   useEffect(() => {
     const queryMode = new URLSearchParams(location.search).get('mode')
@@ -39,6 +41,13 @@ function Auth() {
     setMessage({ type: '', text: '' })
 
     try {
+      // If the email is already registered, prompt the user to login instead of attempting signup.
+      const methods = await fetchSignInMethodsForEmail(auth, email)
+      if (methods && methods.length > 0) {
+        setMessage({ type: 'error', text: 'Email already in use. Please login instead.' })
+        setLoading(false)
+        return
+      }
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       // Ensure we have a user document with the email saved.
       try {
@@ -68,9 +77,11 @@ function Auth() {
     setMessage({ type: '', text: '' })
 
     try {
+      console.log('[Auth] Attempt login for', email)
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       if (!userCredential.user.emailVerified) {
         await signOut(auth)
+        setShowResend(true)
         setMessage({
           type: 'error',
           text: 'Email not verified. Please check your inbox and verify your email first.',
@@ -81,6 +92,22 @@ function Auth() {
       setEmail('')
       setPassword('')
       navigate('/test', { replace: true })
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    setLoading(true)
+    setMessage({ type: '', text: '' })
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password)
+      await sendEmailVerification(userCredential.user)
+      await signOut(auth)
+      setShowResend(false)
+      setMessage({ type: 'success', text: 'Verification email resent. Check your inbox.' })
     } catch (error) {
       setMessage({ type: 'error', text: error.message })
     } finally {
@@ -181,6 +208,14 @@ function Auth() {
           <p className={`auth-message ${message.type === 'error' ? 'error' : 'success'}`}>
             {message.text}
           </p>
+        ) : null}
+
+        {showResend ? (
+          <div style={{ marginTop: 12 }}>
+            <button className="auth-submit-btn" onClick={handleResendVerification} disabled={loading}>
+              {loading ? 'Please wait...' : 'Resend verification email'}
+            </button>
+          </div>
         ) : null}
 
         <p className="auth-footnote">
