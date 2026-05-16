@@ -108,14 +108,16 @@ export async function getCategories(userId = null) {
       try {
         const userCatsSnap = await getDocs(collection(db, 'users', userId, 'categories'))
         userCatsSnap.docs.forEach((d) => results.push({ id: d.id, ...d.data() }))
+        console.log('[getCategories] User categories fetched successfully:', userCatsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       } catch (err) {
-        console.warn('Failed to read user categories:', err?.code || err?.message)
+        console.error('[getCategories] Failed to read user categories - Permission denied or path does not exist:', err?.code, err?.message)
       }
     }
 
     // Deduplicate by id, keeping user-specific override last
     const map = new Map()
     results.forEach((r) => map.set(r.id, r))
+    console.log('[getCategories] Final categories:', Array.from(map.values()))
     return Array.from(map.values())
   } catch (error) {
     console.warn('Failed to fetch categories:', error)
