@@ -39,6 +39,8 @@ function Test() {
           { id: 'english', title: 'English', description: 'Synonyms, Antonyms, Analogies & Sentence Completion' },
           { id: 'quantitative', title: 'Quantitative', description: 'Arithmetic, Algebra, Geometry & Data Interpretation' },
           { id: 'analytical', title: 'Analytical', description: 'Logical Reasoning, Patterns & Critical Thinking' },
+          { id: 'research-methodology', title: 'Research Methodology', description: '' },
+          { id: 'iot', title: 'IOT', description: '' },
         ]
 
         // Merge defaults with remote categories, keeping remote entries if ids collide

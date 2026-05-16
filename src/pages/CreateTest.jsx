@@ -642,6 +642,8 @@ function CreateTest() {
           { id: 'english', title: 'English' },
           { id: 'quantitative', title: 'Quantitative' },
           { id: 'analytical', title: 'Analytical' },
+          { id: 'research-methodology', title: 'Research Methodology' },
+          { id: 'iot', title: 'IOT' },
         ]
 
         // Merge defaults with remote categories, keeping remote entries if ids collide
