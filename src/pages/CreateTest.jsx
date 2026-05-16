@@ -703,6 +703,24 @@ D) None`}
                   <button type="button" className="action-btn secondary" onClick={handlePreviewSplit}>Preview / Split</button>
                   <button type="button" className="action-btn" onClick={() => { setParsedQuestions([]); setMcqText(''); setAnswerKey('') }}>Clear</button>
                 </div>
+                {/* Compact copyable format for small screens / quick access */}
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1, background: '#fbf8ff', padding: 10, borderRadius: 8, border: '1px solid #f0e0ff' }}>
+                    <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Quick MCQ format (tap Copy):</div>
+                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.2 }}>1. Question text? A) Option A B) Option B C) Option C D) Option D</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="action-btn secondary"
+                    onClick={() => {
+                      const short = `1. Question text?\nA) Option A\nB) Option B\nC) Option C\nD) Option D\n\nAnswer Key:\n1-A`;
+                      navigator.clipboard.writeText(short)
+                      alert('Compact MCQ format copied to clipboard!')
+                    }}
+                  >
+                    Copy Format
+                  </button>
+                </div>
               </div>
 
               <div className="form-group flex-1">
