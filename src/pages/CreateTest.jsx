@@ -114,6 +114,27 @@ function CreateTest() {
     if (!rawText) return text
 
     const optionPattern = /^([A-Da-d])[\)\.\s]+(.+)/
+    const optionMarkerPattern = /(^|\s)([A-Da-d])[\)\.\s]+/g
+
+    const parseInlineQuestionLine = (line) => {
+      const matches = [...line.matchAll(optionMarkerPattern)]
+      if (matches.length < 4) return null
+
+      const optionStarts = matches.slice(0, 4).map((match) => match.index + match[1].length)
+      if (optionStarts.length < 4) return null
+
+      const questionText = line.slice(0, optionStarts[0]).trim().replace(/[\s:,-]+$/, '')
+      const options = optionStarts.map((startIndex, index) => {
+        const currentMatch = matches[index]
+        const nextStart = index < optionStarts.length - 1 ? optionStarts[index + 1] : line.length
+        const optionText = line.slice(currentMatch.index + currentMatch[0].length, nextStart).trim()
+        return optionText
+      })
+
+      if (!questionText || options.some((option) => !option)) return null
+      return { questionText, options }
+    }
+
     const blocks = rawText
       .split(/\n\s*\n+/)
       .map((block) => block.trim())
@@ -126,7 +147,17 @@ function CreateTest() {
       const optionStartIndex = lines.findIndex((line) => optionPattern.test(line))
 
       if (optionStartIndex <= 0) {
-        return block
+        const inlineParsed = parseInlineQuestionLine(lines[0])
+        if (!inlineParsed) {
+          return block
+        }
+
+        return `${index + 1}. ${inlineParsed.questionText}\n${inlineParsed.options.map((optionText, optionIndex) => `${String.fromCharCode(65 + optionIndex)}) ${optionText}`).join('\n')}`
+      }
+
+      const inlineParsed = parseInlineQuestionLine(lines.slice(optionStartIndex).join(' '))
+      if (inlineParsed) {
+        return `${index + 1}. ${inlineParsed.questionText}\n${inlineParsed.options.map((optionText, optionIndex) => `${String.fromCharCode(65 + optionIndex)}) ${optionText}`).join('\n')}`
       }
 
       const optionLines = lines.slice(optionStartIndex).filter((line) => optionPattern.test(line))
